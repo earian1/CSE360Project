@@ -1,23 +1,92 @@
-#include <cppunit/ui/text/TestRunner.h>
-#include <cppunit/extensions/TestFactoryRegistry.h>
-#include <cppunit/XmlOutputter.h>
-#include <fstream>
-#include "UserManagementTest.h"
+#include <JuceHeader.h>
+#include "MainComponent.h"
 
-int main()
+//==============================================================================
+class GuiAppApplication final : public juce::JUCEApplication
 {
-    CppUnit::TextUi::TestRunner runner;
+public:
+    //==============================================================================
+    GuiAppApplication() {}
 
-    // Add your test suite
-    runner.addTest(UserManagementTest::suite());
+    juce::ApplicationProperties appProperties;
 
-    // Run tests
-    bool wasSuccessful = runner.run("", false);
+    const juce::String getApplicationName() override { return "My JUCE App"; }
+    const juce::String getApplicationVersion() override { return "1.0.0"; }
+    bool moreThanOneInstanceAllowed() override { return true; }
 
-    // Generate XML report
-    std::ofstream xmlFile("cppunit_results.xml");
-    CppUnit::XmlOutputter xmlOutputter(&runner.result(), xmlFile);
-    xmlOutputter.write();
+    //==============================================================================
+    void initialise(const juce::String& commandLine) override
+    {
+        juce::ignoreUnused(commandLine);
 
-    return wasSuccessful ? 0 : 1;
-}
+        // --- Setup storage options FIRST ---
+        juce::PropertiesFile::Options options;
+        options.applicationName = "SoundManagerApp";
+        options.filenameSuffix = ".settings";
+        options.osxLibrarySubFolder = "Application Support";
+        options.folderName = "SoundManagerAppData";
+        options.storageFormat = juce::PropertiesFile::StorageFormat::storeAsXML;
+
+        appProperties.setStorageParameters(options);
+
+        // --- Then create main window ---
+        mainWindow.reset(new MainWindow(getApplicationName(), appProperties));
+    }
+
+    void shutdown() override
+    {
+        mainWindow = nullptr;
+    }
+
+    //==============================================================================
+    void systemRequestedQuit() override
+    {
+        quit();
+    }
+
+    void anotherInstanceStarted(const juce::String& commandLine) override
+    {
+        juce::ignoreUnused(commandLine);
+    }
+
+    //==============================================================================
+    class MainWindow final : public juce::DocumentWindow
+    {
+    public:
+        explicit MainWindow(juce::String name, juce::ApplicationProperties& props)
+            : DocumentWindow(name,
+                juce::Desktop::getInstance().getDefaultLookAndFeel()
+                .findColour(juce::ResizableWindow::backgroundColourId),
+                DocumentWindow::allButtons)
+        {
+            setUsingNativeTitleBar(true);
+
+            // Pass the already-initialized appProperties to MainComponent
+            setContentOwned(new MainComponent(props), true);
+
+#if JUCE_IOS || JUCE_ANDROID
+            setFullScreen(true);
+#else
+            setResizable(true, true);
+            centreWithSize(getWidth(), getHeight());
+#endif
+
+            setVisible(true);
+        }
+
+        void closeButtonPressed() override
+        {
+            JUCEApplication::getInstance()->systemRequestedQuit();
+        }
+
+    private:
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainWindow)
+
+    };
+
+private:
+    std::unique_ptr<MainWindow> mainWindow;
+};
+
+//==============================================================================
+START_JUCE_APPLICATION(GuiAppApplication)
