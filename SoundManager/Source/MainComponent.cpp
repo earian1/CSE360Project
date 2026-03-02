@@ -1,4 +1,7 @@
 #include "MainComponent.h"
+#include <string>
+#include <iostream>
+using namespace std;
 
 MainComponent::MainComponent(juce::ApplicationProperties& props)
 {
@@ -18,6 +21,7 @@ MainComponent::MainComponent(juce::ApplicationProperties& props)
     updateVisibility();
 }
 // ---------- UI SETUP ----------
+
 void MainComponent::setupUI()
 {   
 
@@ -64,18 +68,26 @@ void MainComponent::setupUI()
     addAndMakeVisible(submitButton);
     submitButton.onClick = [this]()
     {
-        if (usernameField_setup.getText().isEmpty() ||
-            passwordField_setup.getText().isEmpty() ||
-            accountInfoField_setup.getText().isEmpty())
-        {
+            string special_characters = "!@#$%^&*()_+-={}[]|\\\"\':;<>.?/";
+            if (usernameField_setup.getText().isEmpty() ||
+                passwordField_setup.getText().isEmpty() ||
+                accountInfoField_setup.getText().isEmpty())
+            {
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::AlertWindow::WarningIcon,
+                    "Input Error",
+                    "Please fill in all fields."
+                );
+                return;
+            }
+            else if ((passwordField_setup.getText()).indexOfAnyOf(special_characters) == -1){
             juce::AlertWindow::showMessageBoxAsync(
                 juce::AlertWindow::WarningIcon,
                 "Input Error",
-                "Please fill in all fields."
+                "Please make sure password contains a special character"
             );
             return;
         }
-
         juce::String selectedRole = roleSelector_setup.getSelectedId() == 1 ? "Owner" : "Guest";
         saveUserInfo(usernameField_setup.getText(),
                      passwordField_setup.getText(),
