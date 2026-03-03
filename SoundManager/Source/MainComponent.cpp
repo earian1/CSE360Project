@@ -1,12 +1,36 @@
 #include "MainComponent.h"
-#include <string>
-#include <iostream>
-using namespace std;
 
 MainComponent::MainComponent(juce::ApplicationProperties& props)
 {
     userStorage = props.getUserSettings();
-    setSize(600, 400);
+    setSize(700, 500);
+
+    // Low-saturation indigo theme, slightly darkened overall while keeping textboxes lighter
+    {
+        auto& lf = getLookAndFeel();
+        // darker muted indigo background
+        lf.setColour(juce::ResizableWindow::backgroundColourId, juce::Colour::fromRGB(80, 70, 110));
+        // general label text color (slightly less bright)
+        lf.setColour(juce::Label::textColourId, juce::Colour::fromRGB(230, 230, 240));
+        // buttons: darker muted indigo/gray
+        lf.setColour(juce::TextButton::buttonColourId, juce::Colour::fromRGB(110, 95, 130));
+        lf.setColour(juce::TextButton::textColourOnId, juce::Colour::fromRGB(240, 240, 245));
+        lf.setColour(juce::TextButton::textColourOffId, juce::Colour::fromRGB(240, 240, 245));
+        // sliders: slightly darker/desaturated
+        lf.setColour(juce::Slider::thumbColourId, juce::Colour::fromRGB(150, 140, 160));
+        lf.setColour(juce::Slider::trackColourId, juce::Colour::fromRGB(100, 95, 115));
+
+        // Text editors (textboxes): keep slightly lighter than background but darker than before
+        lf.setColour(juce::TextEditor::backgroundColourId, juce::Colour::fromRGB(125, 115, 150));
+        lf.setColour(juce::TextEditor::outlineColourId, juce::Colour::fromRGB(105, 95, 125));
+        lf.setColour(juce::TextEditor::textColourId, juce::Colour::fromRGB(25, 20, 35));
+
+        // ComboBox / Popups / Lists: match textbox tone (darker)
+        lf.setColour(juce::ComboBox::backgroundColourId, juce::Colour::fromRGB(125, 115, 150));
+        lf.setColour(juce::PopupMenu::backgroundColourId, juce::Colour::fromRGB(135, 125, 160));
+        lf.setColour(juce::ListBox::backgroundColourId, juce::Colour::fromRGB(125, 115, 150));
+        lf.setColour(juce::ListBox::textColourId, juce::Colour::fromRGB(25, 20, 35));
+    }
 
     // Add menu bar
     addAndMakeVisible(menuBar);
@@ -21,17 +45,17 @@ MainComponent::MainComponent(juce::ApplicationProperties& props)
     updateVisibility();
 }
 // ---------- UI SETUP ----------
-
 void MainComponent::setupUI()
 {   
 
-    recordingStatusLabel.setText("Recording, 0 samples", juce::dontSendNotification);
-    recordingStatusLabel.setColour(juce::Label::textColourId, juce::Colours::red);
-    recordingStatusLabel.setFont(juce::Font(14.0f, juce::Font::bold));
-    addAndMakeVisible(recordingStatusLabel);
-
 
     // ---------- FIRST USER SETUP ----------
+    titleLabel.setText("Sound System Login", juce::dontSendNotification);
+    titleLabel.setFont(juce::Font(22.0f, juce::Font::bold));
+    titleLabel.setJustificationType(juce::Justification::centred);
+    titleLabel.setColour(juce::Label::textColourId, getLookAndFeel().findColour(juce::Label::textColourId));
+    addAndMakeVisible(titleLabel);
+
     usernameLabel_setup.setText("Username:", juce::dontSendNotification);
     usernameLabel_setup.setColour(juce::Label::textColourId, juce::Colours::white);
     usernameLabel_setup.setFont(juce::Font(16.0f, juce::Font::bold));
@@ -65,29 +89,25 @@ void MainComponent::setupUI()
     addAndMakeVisible(accountInfoField_setup);
 
     submitButton.setButtonText("Submit");
+    // make the submit button ocean blue
+    submitButton.setColour(juce::TextButton::buttonColourId, juce::Colour::fromRGB(0, 123, 167));
+    submitButton.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+    submitButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
     addAndMakeVisible(submitButton);
     submitButton.onClick = [this]()
     {
-            string special_characters = "!@#$%^&*()_+-={}[]|\\\"\':;<>.?/";
-            if (usernameField_setup.getText().isEmpty() ||
-                passwordField_setup.getText().isEmpty() ||
-                accountInfoField_setup.getText().isEmpty())
-            {
-                juce::AlertWindow::showMessageBoxAsync(
-                    juce::AlertWindow::WarningIcon,
-                    "Input Error",
-                    "Please fill in all fields."
-                );
-                return;
-            }
-            else if ((passwordField_setup.getText()).indexOfAnyOf(special_characters) == -1){
+        if (usernameField_setup.getText().isEmpty() ||
+            passwordField_setup.getText().isEmpty() ||
+            accountInfoField_setup.getText().isEmpty())
+        {
             juce::AlertWindow::showMessageBoxAsync(
                 juce::AlertWindow::WarningIcon,
                 "Input Error",
-                "Please make sure password contains a special character"
+                "Please fill in all fields."
             );
             return;
         }
+
         juce::String selectedRole = roleSelector_setup.getSelectedId() == 1 ? "Owner" : "Guest";
         saveUserInfo(usernameField_setup.getText(),
                      passwordField_setup.getText(),
@@ -183,155 +203,88 @@ void MainComponent::setupUI()
         if (!isRecording){
             isRecording = true;
             recordingPosition = 0;
-            recordingBuffer.setSize(2, 44100 * 10); // 10 seconds buffer at 44.1kHz
+            recordingBuffer.setSize(2, 44100 * 10);
+            recordingBuffer.clear();
 
             juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon, "Recording", "Recording started!");
         }
         else{
             isRecording = false;
             juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon, "Recording", "Recording stopped!");
-
-            juce::Logger::writeToLog("Recording stopped, samples recorded: " + juce::String(recordingPosition));
-
         }
-    
+
+    };
+
+    playButton.onClick = [this]()
+    {
+        if (isRecording)
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::WarningIcon, 
+                "Playback Error", 
+                "Cannot play while recording is in progress!");
+            return;
+        }
+
+        if (recordingPosition == 0)
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::WarningIcon, 
+                "Playback Error", 
+                "No recording available. Please record first!");
+            return;
+        }
+
+        playRecordAudio();
     };
 
     stopButton.onClick = [this]()
     {
+        if (isRecording)
+        {
+            isRecording = false;
+        }
         transportSource.stop();
     };
 
-// ---------- SAVE BUTTON ----------
-saveButton.onClick = [this]()
+    saveButton.onClick = [this]() 
 {
     if (isRecording)
     {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::WarningIcon,
-            "Save Error",
-            "Please stop recording before saving."
-        );
+        juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Save Error", "Please stop recording before saving.");
         return;
     }
 
-    if (recordingPosition == 0)
+    juce::FileChooser fileChooser("Save Recording",
+                               juce::File{},
+                               "*.wav");
+
+fileChooser.launchAsync(
+    juce::FileBrowserComponent::saveMode |
+    juce::FileBrowserComponent::canSelectFiles,
+    [this](const juce::FileChooser& chooser)
     {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::WarningIcon,
-            "Save Error",
-            "No recording available to save!"
-        );
-        return;
-    }
+        auto file = chooser.getResult();
 
-    juce::FileChooser fileChooser("Save Recording", juce::File{}, "*.wav");
-
-    fileChooser.launchAsync(
-        juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
-        [this](const juce::FileChooser& chooser)
+        if (file != juce::File{})
         {
-            auto file = chooser.getResult();
-            if (file == juce::File{})
-                return; // user cancelled
-
             juce::WavAudioFormat wavFormat;
 
-            // Create the output stream safely
-            auto outputStream = file.createOutputStream();
-            if (!outputStream)
-            {
-                juce::AlertWindow::showMessageBoxAsync(
-                    juce::AlertWindow::WarningIcon,
-                    "Save Error",
-                    "Failed to create file stream. Check file path or permissions."
-                );
-                return;
-            }
-
-            // Create the writer safely
             std::unique_ptr<juce::AudioFormatWriter> writer(
-                wavFormat.createWriterFor(outputStream.release(),
-                                          44100,
-                                          recordingBuffer.getNumChannels(),
-                                          16,
-                                          {},
-                                          0));
+                wavFormat.createWriterFor(
+                    file.createOutputStream().release(),
+                    44100,
+                    recordingBuffer.getNumChannels(),
+                    16,
+                    {},
+                    0));
 
-            if (!writer)
-            {
-                juce::AlertWindow::showMessageBoxAsync(
-                    juce::AlertWindow::WarningIcon,
-                    "Save Error",
-                    "Failed to create WAV writer."
-                );
-                return;
-            }
+            if (writer != nullptr)
+                writer->writeFromAudioSampleBuffer(recordingBuffer, 0, recordingPosition);
+        }
+    });
 
-            // Write the buffer
-            writer->writeFromAudioSampleBuffer(recordingBuffer, 0, recordingPosition);
-
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::InfoIcon,
-                "Save Successful",
-                "Recording saved to: " + file.getFullPathName()
-            );
-        });
 };
-
-// ---------- PLAY BUTTON ----------
-playButton.onClick = [this]()
-{
-    if (recordingPosition == 0)
-    {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::WarningIcon,
-            "Playback Error",
-            "No recording to play!"
-        );
-        return;
-    }
-
-    // Stop previous playback
-    transportSource.stop();
-    transportSource.setSource(nullptr);
-
-    // Wrap the recording buffer in a MemoryOutputStream
-    juce::MemoryOutputStream memStream;
-    juce::WavAudioFormat wavFormat;
-
-    {
-        std::unique_ptr<juce::AudioFormatWriter> writer(
-            wavFormat.createWriterFor(&memStream,
-                                      44100,
-                                      recordingBuffer.getNumChannels(),
-                                      16,
-                                      {},
-                                      0));
-        if (writer)
-            writer->writeFromAudioSampleBuffer(recordingBuffer, 0, recordingPosition);
-    }
-
-    // Create a reader from the memory stream
-    auto memInputStream = std::make_unique<juce::MemoryInputStream>(memStream.getData(), memStream.getDataSize(), false);
-    std::unique_ptr<juce::AudioFormatReader> reader(
-        wavFormat.createReaderFor(memInputStream.release(), true));
-
-    if (!reader)
-    {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::WarningIcon,
-            "Playback Error",
-            "Failed to create audio reader."
-        );
-        return;
-    }
-
-    currentAudioFile.reset(new juce::AudioFormatReaderSource(reader.release(), true));
-    transportSource.setSource(currentAudioFile.get(), 0, nullptr, 44100);
-    transportSource.start();
-};
-
 
 //deviceManager.initialiseWithDefaultDevices
 
@@ -374,75 +327,8 @@ playButton.onClick = [this]()
     // Initialize audio device and register callback
     deviceManager.addAudioCallback(this);
 
-    auto devices = deviceManager.getCurrentAudioDevice();
-    if (devices != nullptr)
-    {
-        juce::Logger::writeToLog("Input device: " + devices->getName());
-        juce::Logger::writeToLog("Input channels: " + juce::String(devices->getActiveInputChannels().countNumberOfSetBits()));
-    }
-    
-    
-juce::StringArray inputDevices;
-
-juce::OwnedArray<juce::AudioIODeviceType> types;
-deviceManager.createAudioDeviceTypes(types);
-
-for (auto* type : types)
-{
-    type->scanForDevices();
-    auto names = type->getDeviceNames(true);
-    inputDevices.addArray(names);
-}
-
-// Log
-juce::Logger::writeToLog("Available input devices: " + inputDevices.joinIntoString(", "));
-
-if (inputDevices.isEmpty())
-{
-    juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
-                                           "No Input Devices",
-                                           "No microphone or input devices were found!");
-}
-else
-{
-    // pick first device safely
-    juce::AudioDeviceManager::AudioDeviceSetup setup;
-    deviceManager.getAudioDeviceSetup(setup);
-
-    setup.inputDeviceName = inputDevices[0]; // safe now
-    setup.inputChannels = juce::BigInteger();
-    setup.inputChannels.setRange(0, 2, true); // enable first 2 input channels
-    setup.outputDeviceName = deviceManager.getCurrentAudioDevice() ? deviceManager.getCurrentAudioDevice()->getName() : "";
-    setup.outputChannels = deviceManager.getCurrentAudioDevice() ? deviceManager.getCurrentAudioDevice()->getActiveOutputChannels() : juce::BigInteger(0x3);
-
-    deviceManager.setAudioDeviceSetup(setup, true);
-}
-
-auto* device = deviceManager.getCurrentAudioDevice();
-if (!device || device->getActiveInputChannels().countNumberOfSetBits() == 0)
-{
-    recordButton.setEnabled(false);
-    saveButton.setEnabled(false);
-    juce::Logger::writeToLog("No microphone detected — recording disabled.");
-}
-
-
-
-    juce::AudioDeviceManager::AudioDeviceSetup setup;
-    deviceManager.getAudioDeviceSetup(setup);
-
-    setup.inputDeviceName = inputDevices[0]; // pick the first device (or the one you want)
-    setup.inputChannels = juce::BigInteger();
-    setup.inputChannels.setRange(0, 2, true); // enable first 2 input channels
-
-    setup.outputDeviceName = deviceManager.getCurrentAudioDevice()->getName();
-    setup.outputChannels = deviceManager.getCurrentAudioDevice()->getActiveOutputChannels();
-
-    deviceManager.setAudioDeviceSetup(setup, true);
-
 
 }
-
 
 void MainComponent::updateVisibility()
 {
@@ -509,6 +395,9 @@ void MainComponent::resized()
 
     if (currentState == AppState::FIRST_USER_SETUP)
     {
+        titleLabel.setBounds(area.removeFromTop(40));
+        area.removeFromTop(10);
+
         usernameLabel_setup.setBounds(area.removeFromTop(labelHeight));
         usernameField_setup.setBounds(area.removeFromTop(fieldHeight).reduced(0, spacing));
         passwordLabel_setup.setBounds(area.removeFromTop(labelHeight));
@@ -557,8 +446,6 @@ void MainComponent::resized()
 
             soundList.setBounds(area.removeFromTop(150));
             clusterMapPlaceholder.setBounds(area);
-
-            recordingStatusLabel.setBounds(area.removeFromTop(25));
         }
     }
 }
@@ -590,6 +477,7 @@ void MainComponent::loadUserInfo(juce::String& username, juce::String& password,
 }
 
 
+
 void MainComponent::audioDeviceAboutToStart(juce::AudioIODevice* device)
 {
     if (device!= nullptr)
@@ -601,103 +489,92 @@ void MainComponent::audioDeviceStopped()
     transportSource.stop();
 }
 
-void MainComponent::audioDeviceIOCallbackWithContext(
-    const float* const* inputChannelData,
-    int numInputChannels,
-    float* const* outputChannelData,
-    int numOutputChannels,
-    int numSamples,
-    const juce::AudioIODeviceCallbackContext&)
+void MainComponent::audioDeviceIOCallbackWithContext (
+        const float* const* inputChannelData,
+        int numInputChannels,
+        float* const* outputChannelData,
+        int numOutputChannels,
+        int numSamples,
+        const juce::AudioIODeviceCallbackContext&)
 {
-    // --- RECORDING ---
-    if (isRecording && inputChannelData != nullptr)
-{
-    const int numSamplesToCopy = juce::jmin(numSamples, recordingBuffer.getNumSamples() - recordingPosition);
-    for (int ch = 0; ch < juce::jmin(numInputChannels, recordingBuffer.getNumChannels()); ++ch)
+    if (isRecording && recordingPosition < recordingBuffer.getNumSamples())
     {
-        recordingBuffer.copyFrom(ch, recordingPosition, inputChannelData[ch], numSamplesToCopy);
-    }
-    recordingPosition += numSamplesToCopy;
+        int samplesToRecord = juce::jmin(numSamples, recordingBuffer.getNumSamples() - recordingPosition);
 
-    // Update the label safely in the message thread
-    juce::MessageManager::callAsync([this]()
-    {
-        recordingStatusLabel.setText("Recording: " + juce::String(recordingPosition) + " samples", juce::dontSendNotification);
-    });
-
-    // Optional: auto-stop if buffer full
-    if (recordingPosition >= recordingBuffer.getNumSamples())
-    {
-        isRecording = false;
-        juce::MessageManager::callAsync([this]()
+        for (int channel = 0; channel < juce::jmin(numInputChannels, recordingBuffer.getNumChannels()); ++channel)
         {
-            juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon,
-                                                   "Recording",
-                                                   "Maximum recording time reached (10 seconds). Recording stopped!");
-        });
+            if (inputChannelData[channel] != nullptr)
+            {
+                auto* bufferChannel = recordingBuffer.getWritePointer(channel, recordingPosition);
+
+                for (int i = 0; i < samplesToRecord; ++i)
+                    bufferChannel[i] = inputChannelData[channel][i];
+            }
+        }
+        recordingPosition += samplesToRecord;
+
+        if (recordingPosition >= recordingBuffer.getNumSamples())
+        {
+            isRecording = false;
+        }
     }
-}
 
-
-    // --- PLAYBACK ---
-    // Clear outputs first
     for (int channel = 0; channel < numOutputChannels; ++channel)
     {
         if (outputChannelData[channel] != nullptr)
             juce::FloatVectorOperations::clear(outputChannelData[channel], numSamples);
     }
 
-    // If using transportSource for playback, it will automatically fill output buffers
+    juce::AudioBuffer<float> buffer(outputChannelData, numOutputChannels, numSamples);
+    juce::AudioSourceChannelInfo channelInfo(&buffer, 0, numSamples);
+
+    transportSource.getNextAudioBlock(channelInfo);
 }
 
 
 
 void MainComponent::playRecordAudio()
 {
-    if (recordingPosition == 0)
-    {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::WarningIcon,
-            "Playback Error",
-            "No recording to play!"
-        );
+    if (recordingPosition == 0 || recordingBuffer.getNumChannels() == 0)
         return;
-    }
 
-    // Stop any previous playback
     transportSource.stop();
     transportSource.setSource(nullptr);
 
-    // Wrap buffer in memory stream
-    juce::MemoryOutputStream memStream;
+    lastRecordingData.reset();
+    auto* memStream = new juce::MemoryOutputStream(lastRecordingData, false);
     juce::WavAudioFormat wavFormat;
 
-    {
-        std::unique_ptr<juce::AudioFormatWriter> writer(
-            wavFormat.createWriterFor(&memStream,
-                                      44100,
-                                      recordingBuffer.getNumChannels(),
-                                      16,
-                                      {},
-                                      0));
-        if (writer)
-            writer->writeFromAudioSampleBuffer(recordingBuffer, 0, recordingPosition);
-    }
+    std::unique_ptr<juce::AudioFormatWriter> writer(
+        wavFormat.createWriterFor(memStream, 44100, recordingBuffer.getNumChannels(), 16, {}, 0)
+    );
 
-    auto memInputStream = std::make_unique<juce::MemoryInputStream>(memStream.getData(), memStream.getDataSize(), false);
+    if (writer == nullptr)
+        return;
 
-    // Create a reader from the stream
+    writer->writeFromAudioSampleBuffer(recordingBuffer, 0, recordingPosition);
+    writer.reset();
+
+    if (lastRecordingData.getSize() == 0)
+        return;
+
+    auto memInputStream = std::make_unique<juce::MemoryInputStream>(
+        lastRecordingData, false
+    );
+
+    juce::WavAudioFormat wavFormat2;
     std::unique_ptr<juce::AudioFormatReader> reader(
-        wavFormat.createReaderFor(memInputStream.release(), true));
+        wavFormat2.createReaderFor(memInputStream.release(), true)
+    );
 
-    if (reader)
+    if (reader != nullptr)
     {
+        auto sampleRate = reader->sampleRate;
         currentAudioFile.reset(new juce::AudioFormatReaderSource(reader.release(), true));
-        transportSource.setSource(currentAudioFile.get(), 0, nullptr, 44100);
+        transportSource.setSource(currentAudioFile.get(), 0, nullptr, sampleRate);
         transportSource.start();
     }
 }
-
 //==============================================================================
 
 // ---------- MENU BAR ----------

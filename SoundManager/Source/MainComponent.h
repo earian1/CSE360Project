@@ -42,6 +42,7 @@ private:
 
     // FIRST USER SETUP
     juce::Label usernameLabel_setup, passwordLabel_setup, accountInfoLabel_setup, roleLabel_setup;
+    juce::Label titleLabel;
     juce::TextEditor usernameField_setup, passwordField_setup, accountInfoField_setup;
     juce::ComboBox roleSelector_setup;
     juce::TextButton submitButton { "Submit" };
@@ -75,11 +76,9 @@ private:
 
     //Recording
     juce::AudioBuffer<float> recordingBuffer;
-    bool isRecording { false }; 
+    bool isRecording{ false };
     int recordingPosition = 0;
-
-    // Recording status
-    juce::Label recordingStatusLabel;
+    juce::MemoryBlock lastRecordingData; // Keeps the audio data alive for playback
     
     // Sound list
     juce::ListBox soundList;
