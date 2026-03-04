@@ -69,6 +69,8 @@ void MainComponent::setupUI()
     submitButton.onClick = [this]()
     {
             string special_characters = "!@#$%^&*()_+-={}[]|\\\"\':;<>.?/";
+            string cap_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+            string all_numbers = "0123456789";
             if (usernameField_setup.getText().isEmpty() ||
                 passwordField_setup.getText().isEmpty() ||
                 accountInfoField_setup.getText().isEmpty())
@@ -80,11 +82,11 @@ void MainComponent::setupUI()
                 );
                 return;
             }
-            else if ((passwordField_setup.getText()).indexOfAnyOf(special_characters) == -1){
+            else if ((passwordField_setup.getText()).indexOfAnyOf(special_characters) == -1 || (passwordField_setup.getText()).indexOfAnyOf(cap_letters) == -1 || (passwordField_setup.getText()).indexOfAnyOf(all_numbers) == -1){
             juce::AlertWindow::showMessageBoxAsync(
                 juce::AlertWindow::WarningIcon,
                 "Input Error",
-                "Please make sure password contains a special character"
+                "Please make sure password contains a special character, a capital letter, and a number"
             );
             return;
         }
