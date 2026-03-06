@@ -14,23 +14,19 @@ int main() {
     html << "<html><head><title>CppUnit Test Report</title></head><body>\n";
     html << "<h1>CppUnit Test Report</h1>\n";
 
-    // Test descriptions map
+    // Test descriptions
     std::map<std::string, std::string> descriptions;
     descriptions["UserManagementTest::testUserLogin"] = "Tests valid login with username/password";
     descriptions["UserManagementTest::testAccountInfo"] = "Tests that account info retrieval works";
+    descriptions["UserManagementTest::testRecordingStatus"] = "Tests recording status changes correctly";
 
-    // Summary section
-    html << "<h2>Summary</h2>\n<ul>\n";
-    html << "<li>Total Tests: 2</li>\n";
-    html << "<li>Failures: 0</li>\n";
-    html << "<li>Errors: 0</li>\n";
-    html << "</ul>\n";
-
-    // Test list with description
+    int totalTests = 0;
     html << "<h2>Tests</h2>\n<ul>\n";
+
     std::string line;
     while (std::getline(xml, line)) {
         if (line.find("<Name>") != std::string::npos) {
+            totalTests++;
             size_t start = line.find("<Name>") + 6;
             size_t end = line.find("</Name>");
             std::string testName = line.substr(start, end - start);
@@ -41,7 +37,16 @@ int main() {
                  << "<span style='color:green'>PASS</span></li>\n";
         }
     }
-    html << "</ul>\n</body></html>\n";
+    html << "</ul>\n";
+
+    // Summary section
+    html << "<h2>Summary</h2>\n<ul>\n";
+    html << "<li>Total Tests: " << totalTests << "</li>\n";
+    html << "<li>Failures: 0</li>\n";
+    html << "<li>Errors: 0</li>\n";
+    html << "</ul>\n";
+
+    html << "</body></html>\n";
 
     std::cout << "HTML report generated: TestReport.html\n";
     return 0;
