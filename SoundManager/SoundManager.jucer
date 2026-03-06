@@ -3,12 +3,11 @@
 <JUCERPROJECT id="x0WuzB" name="SoundManager" projectType="guiapp" useAppConfig="0"
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1">
   <MAINGROUP id="rdv3r3" name="SoundManager">
-    <GROUP id="{9EE53BE9-D1A5-EC74-3B73-D6A91DA0455A}" name="Source">
-      <FILE id="jrcngG" name="Main.cpp" compile="1" resource="0" file="Source/Main.cpp"/>
-      <FILE id="a052L4" name="MainComponent.h" compile="0" resource="0" file="Source/MainComponent.h"/>
-      <FILE id="ykuQl0" name="MainComponent.cpp" compile="1" resource="0"
-            file="Source/MainComponent.cpp"/>
-    </GROUP>
+    <GROUP id="{9EE53BE9-D1A5-EC74-3B73-D6A91DA0455A}" name="Source"/>
+    <FILE id="f9wtan" name="Main.cpp" compile="1" resource="0" file="../Main.cpp"/>
+    <FILE id="LQQ0RQ" name="MainComponent.h" compile="0" resource="0" file="../MainComponent.h"/>
+    <FILE id="R21uIv" name="MainComponent.cpp" compile="1" resource="0"
+          file="../MainComponent.cpp"/>
   </MAINGROUP>
   <MODULES>
     <MODULE id="juce_audio_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
