@@ -2,9 +2,6 @@
 
 #include <JuceHeader.h>
 
-// Forward declaration
-class BufferAudioSource;
-
 class MainComponent final
     : public juce::Component,
       public juce::MenuBarModel,
@@ -12,15 +9,9 @@ class MainComponent final
 {
 public:
     explicit MainComponent(juce::ApplicationProperties& props);
-    ~MainComponent() override;
-    
-        void saveRecording();
-        void playRecordedAudio();
-        
 
     void paint(juce::Graphics&) override;
     void resized() override;
-    
 
     // Menu bar
     juce::StringArray getMenuBarNames() override;
@@ -46,10 +37,6 @@ private:
         MAIN_APP
     };
 
-    // Playback
-    std::unique_ptr<BufferAudioSource> bufferSource;
-    juce::AudioBuffer<float> playbackBuffer;
-
     juce::PropertiesFile* userStorage { nullptr };
     AppState currentState { AppState::FIRST_USER_SETUP };
 
@@ -65,6 +52,7 @@ private:
     juce::TextEditor usernameField_login, passwordField_login;
     juce::Label roleDisplay_login;
     juce::TextButton loginButton { "Login" };
+    
 
     // MAIN APP
     juce::Label mainAppPlaceholder;
@@ -72,38 +60,37 @@ private:
     // Menu bar
     juce::MenuBarComponent menuBar;
 
-    // Owner dashboard
+    //owner dashboard
     juce::TextButton recordButton { "Record" };
     juce::TextButton playButton { "Play" };
     juce::TextButton stopButton { "Stop" };
     juce::TextButton saveButton { "Save" };
     juce::TextButton createGuestButton { "Create Guest Account" };
 
-    // Audio
-    juce::AudioFormatManager formatManager;
-    juce::AudioTransportSource transportSource;
-    juce::AudioDeviceManager deviceManager;
+    //audio
+    juce::AudioFormatManager formatManager; // read/write audio files
+    juce::AudioTransportSource transportSource; // manage playback
+    std::unique_ptr<juce::AudioFormatReaderSource> currentAudioFile; // current audio file source
+    juce::AudioDeviceManager deviceManager; 
 
-    // Recording
+    //Recording
     juce::AudioBuffer<float> recordingBuffer;
-    bool isRecording { false };
+    bool isRecording { false }; 
     int recordingPosition = 0;
 
     // Recording status
     juce::Label recordingStatusLabel;
-
+    
     // Sound list
     juce::ListBox soundList;
 
-    // Sliders
+    //sliders for sound manipulation
     juce::Slider pitchSlider, lengthSlider, volumeSlider;
     juce::Label pitchLabel, lengthLabel, volumeLabel;
 
-    // Cluster map placeholder
+    //placeholder for 2-D cluster map
     juce::Component clusterMapPlaceholder;
 
-    // File chooser
-    std::unique_ptr<juce::FileChooser> fileChooser;
 
     // Helpers
     void setupUI();
@@ -111,6 +98,7 @@ private:
     bool userExists() const;
     void saveUserInfo(const juce::String&, const juce::String&, const juce::String&, const juce::String&);
     void loadUserInfo(juce::String&, juce::String&, juce::String&, juce::String&) const;
+    void playRecordAudio();
 
     juce::String getCurrentUserRole() const
     {
@@ -118,6 +106,7 @@ private:
         loadUserInfo(username, password, accountInfo, role);
         return role;
     }
+
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };
