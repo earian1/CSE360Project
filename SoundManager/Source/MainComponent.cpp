@@ -3,6 +3,49 @@
 #include <iostream>
 using namespace std;
 
+MainComponent::~MainComponent() = default;
+
+class BufferAudioSource : public juce::PositionableAudioSource
+{
+public:
+    BufferAudioSource(const juce::AudioBuffer<float>& buffer, int numSamples)
+        : sourceBuffer(buffer), totalSamples(numSamples), position(0) {}
+
+    void prepareToPlay(int, double) override { position = 0; }
+    void releaseResources() override {}
+
+    void getNextAudioBlock(const juce::AudioSourceChannelInfo& info) override
+    {
+        const int remaining = totalSamples - position;
+        const int toFill = juce::jmin(info.numSamples, remaining);
+
+        if (toFill > 0)
+        {
+            for (int ch = 0; ch < info.buffer->getNumChannels(); ++ch)
+            {
+                const int srcCh = juce::jmin(ch, sourceBuffer.getNumChannels() - 1);
+                info.buffer->copyFrom(ch, info.startSample, sourceBuffer, srcCh, position, toFill);
+            }
+            position += toFill;
+        }
+
+        if (toFill < info.numSamples)
+            info.buffer->clear(info.startSample + toFill, info.numSamples - toFill);
+    }
+
+    // Required by PositionableAudioSource
+    void setNextReadPosition(juce::int64 newPosition) override { position = (int)newPosition; }
+    juce::int64 getNextReadPosition() const override { return position; }
+    juce::int64 getTotalLength() const override { return totalSamples; }
+    bool isLooping() const override { return false; }
+
+private:
+    const juce::AudioBuffer<float>& sourceBuffer;
+    int totalSamples;
+    int position;
+};
+
+
 MainComponent::MainComponent(juce::ApplicationProperties& props)
 {
     userStorage = props.getUserSettings();
@@ -24,6 +67,16 @@ MainComponent::MainComponent(juce::ApplicationProperties& props)
 
 void MainComponent::setupUI()
 {   
+
+    saveButton.onClick = [this]()
+    {
+        saveRecording();
+    };
+
+        playButton.onClick = [this]()
+        {
+            playRecordedAudio();    
+        };
 
     recordingStatusLabel.setText("Recording, 0 samples", juce::dontSendNotification);
     recordingStatusLabel.setColour(juce::Label::textColourId, juce::Colours::red);
@@ -204,135 +257,8 @@ void MainComponent::setupUI()
         transportSource.stop();
     };
 
-// ---------- SAVE BUTTON ----------
-saveButton.onClick = [this]()
-{
-    if (isRecording)
-    {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::WarningIcon,
-            "Save Error",
-            "Please stop recording before saving."
-        );
-        return;
-    }
 
-    if (recordingPosition == 0)
-    {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::WarningIcon,
-            "Save Error",
-            "No recording available to save!"
-        );
-        return;
-    }
 
-    juce::FileChooser fileChooser("Save Recording", juce::File{}, "*.wav");
-
-    fileChooser.launchAsync(
-        juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
-        [this](const juce::FileChooser& chooser)
-        {
-            auto file = chooser.getResult();
-            if (file == juce::File{})
-                return; // user cancelled
-
-            juce::WavAudioFormat wavFormat;
-
-            // Create the output stream safely
-            auto outputStream = file.createOutputStream();
-            if (!outputStream)
-            {
-                juce::AlertWindow::showMessageBoxAsync(
-                    juce::AlertWindow::WarningIcon,
-                    "Save Error",
-                    "Failed to create file stream. Check file path or permissions."
-                );
-                return;
-            }
-
-            // Create the writer safely
-            std::unique_ptr<juce::AudioFormatWriter> writer(
-                wavFormat.createWriterFor(outputStream.release(),
-                                          44100,
-                                          recordingBuffer.getNumChannels(),
-                                          16,
-                                          {},
-                                          0));
-
-            if (!writer)
-            {
-                juce::AlertWindow::showMessageBoxAsync(
-                    juce::AlertWindow::WarningIcon,
-                    "Save Error",
-                    "Failed to create WAV writer."
-                );
-                return;
-            }
-
-            // Write the buffer
-            writer->writeFromAudioSampleBuffer(recordingBuffer, 0, recordingPosition);
-
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::InfoIcon,
-                "Save Successful",
-                "Recording saved to: " + file.getFullPathName()
-            );
-        });
-};
-
-// ---------- PLAY BUTTON ----------
-playButton.onClick = [this]()
-{
-    if (recordingPosition == 0)
-    {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::WarningIcon,
-            "Playback Error",
-            "No recording to play!"
-        );
-        return;
-    }
-
-    // Stop previous playback
-    transportSource.stop();
-    transportSource.setSource(nullptr);
-
-    // Wrap the recording buffer in a MemoryOutputStream
-    juce::MemoryOutputStream memStream;
-    juce::WavAudioFormat wavFormat;
-
-    {
-        std::unique_ptr<juce::AudioFormatWriter> writer(
-            wavFormat.createWriterFor(&memStream,
-                                      44100,
-                                      recordingBuffer.getNumChannels(),
-                                      16,
-                                      {},
-                                      0));
-        if (writer)
-            writer->writeFromAudioSampleBuffer(recordingBuffer, 0, recordingPosition);
-    }
-
-    // Create a reader from the memory stream
-    auto memInputStream = std::make_unique<juce::MemoryInputStream>(memStream.getData(), memStream.getDataSize(), false);
-    std::unique_ptr<juce::AudioFormatReader> reader(
-        wavFormat.createReaderFor(memInputStream.release(), true));
-
-    if (!reader)
-    {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::WarningIcon,
-            "Playback Error",
-            "Failed to create audio reader."
-        );
-        return;
-    }
-
-    currentAudioFile.reset(new juce::AudioFormatReaderSource(reader.release(), true));
-    transportSource.setSource(currentAudioFile.get(), 0, nullptr, 44100);
-    transportSource.start();
-};
 
 
 //deviceManager.initialiseWithDefaultDevices
@@ -428,21 +354,111 @@ if (!device || device->getActiveInputChannels().countNumberOfSetBits() == 0)
     juce::Logger::writeToLog("No microphone detected — recording disabled.");
 }
 
+}
+
+// ---------- SAVE BUTTON ----------
+void MainComponent::saveRecording()
+{
+    if (isRecording)
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "Save Error",
+            "Please stop recording before saving."
+        );
+        return;
+    }
+
+    if (recordingPosition == 0)
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "Save Error",
+            "No recording available to save!"
+        );
+        return;
+    }
+
+    // Keep FileChooser alive
+    fileChooser = std::make_unique<juce::FileChooser>("Save Recording", juce::File{}, "*.wav");
+
+    fileChooser->launchAsync(
+        juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
+        [this](const juce::FileChooser& chooser)
+        {
+            auto file = chooser.getResult();
+            if (file == juce::File{}) return; // cancelled
+
+            auto outputStream = file.createOutputStream();
+            if (!outputStream)
+            {
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::AlertWindow::WarningIcon,
+                    "Save Error",
+                    "Failed to create file stream."
+                );
+                return;
+            }
+
+            juce::WavAudioFormat wavFormat;
+            std::unique_ptr<juce::AudioFormatWriter> writer(
+                wavFormat.createWriterFor(outputStream.release(),
+                                          44100,
+                                          recordingBuffer.getNumChannels(),
+                                          16,
+                                          {},
+                                          0));
+
+            if (!writer)
+            {
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::AlertWindow::WarningIcon,
+                    "Save Error",
+                    "Failed to create WAV writer."
+                );
+                return;
+            }
+
+            writer->writeFromAudioSampleBuffer(recordingBuffer, 0, recordingPosition);
+
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::InfoIcon,
+                "Save Successful",
+                "Recording saved to: " + file.getFullPathName()
+            );
+        });
+}
 
 
-    juce::AudioDeviceManager::AudioDeviceSetup setup;
-    deviceManager.getAudioDeviceSetup(setup);
+// ---------- PLAY BUTTON ----------
+void MainComponent::playRecordedAudio()
+{
+    if (recordingPosition == 0)
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon, "Playback Error", "No recording to play!");
+        return;
+    }
 
-    setup.inputDeviceName = inputDevices[0]; // pick the first device (or the one you want)
-    setup.inputChannels = juce::BigInteger();
-    setup.inputChannels.setRange(0, 2, true); // enable first 2 input channels
+    // Stop transport FIRST and wait — this blocks until the audio thread is done
+    transportSource.stop();
+    transportSource.setSource(nullptr);  // audio thread will no longer call into bufferSource
 
-    setup.outputDeviceName = deviceManager.getCurrentAudioDevice()->getName();
-    setup.outputChannels = deviceManager.getCurrentAudioDevice()->getActiveOutputChannels();
+    // NOW safe to reset
+    bufferSource.reset();
 
-    deviceManager.setAudioDeviceSetup(setup, true);
+    // Make a copy of the recorded data for playback
+    playbackBuffer.makeCopyOf(recordingBuffer);
+    // Trim to actual recorded length
+    playbackBuffer.setSize(playbackBuffer.getNumChannels(), recordingPosition, true, false, false);
 
+    bufferSource = std::make_unique<BufferAudioSource>(playbackBuffer, recordingPosition);
 
+    auto* device = deviceManager.getCurrentAudioDevice();
+    double sampleRate = device ? device->getCurrentSampleRate() : 44100.0;
+
+    transportSource.setSource(bufferSource.get(), 0, nullptr, sampleRate);
+    transportSource.start();
 }
 
 
@@ -643,62 +659,16 @@ void MainComponent::audioDeviceIOCallbackWithContext(
 
     // --- PLAYBACK ---
     // Clear outputs first
-    for (int channel = 0; channel < numOutputChannels; ++channel)
-    {
-        if (outputChannelData[channel] != nullptr)
-            juce::FloatVectorOperations::clear(outputChannelData[channel], numSamples);
-    }
+    juce::AudioBuffer<float> buffer(outputChannelData, numOutputChannels, numSamples);
+    juce::AudioSourceChannelInfo info(&buffer, 0, numSamples);
+
+    transportSource.getNextAudioBlock(info);
 
     // If using transportSource for playback, it will automatically fill output buffers
 }
 
 
 
-void MainComponent::playRecordAudio()
-{
-    if (recordingPosition == 0)
-    {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::WarningIcon,
-            "Playback Error",
-            "No recording to play!"
-        );
-        return;
-    }
-
-    // Stop any previous playback
-    transportSource.stop();
-    transportSource.setSource(nullptr);
-
-    // Wrap buffer in memory stream
-    juce::MemoryOutputStream memStream;
-    juce::WavAudioFormat wavFormat;
-
-    {
-        std::unique_ptr<juce::AudioFormatWriter> writer(
-            wavFormat.createWriterFor(&memStream,
-                                      44100,
-                                      recordingBuffer.getNumChannels(),
-                                      16,
-                                      {},
-                                      0));
-        if (writer)
-            writer->writeFromAudioSampleBuffer(recordingBuffer, 0, recordingPosition);
-    }
-
-    auto memInputStream = std::make_unique<juce::MemoryInputStream>(memStream.getData(), memStream.getDataSize(), false);
-
-    // Create a reader from the stream
-    std::unique_ptr<juce::AudioFormatReader> reader(
-        wavFormat.createReaderFor(memInputStream.release(), true));
-
-    if (reader)
-    {
-        currentAudioFile.reset(new juce::AudioFormatReaderSource(reader.release(), true));
-        transportSource.setSource(currentAudioFile.get(), 0, nullptr, 44100);
-        transportSource.start();
-    }
-}
 
 //==============================================================================
 
