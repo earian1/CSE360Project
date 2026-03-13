@@ -1,16 +1,19 @@
 #pragma once
 #include <cppunit/extensions/HelperMacros.h>
 #include "MainComponentLogin.h"
+#include "RecordingManager.h"
 
 class UserManagementTest : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(UserManagementTest);
     CPPUNIT_TEST(testUserLogin);
     CPPUNIT_TEST(testAccountInfo);
+    CPPUNIT_TEST(testRecordingStatus);
     CPPUNIT_TEST_SUITE_END();
 
 private:
     MainComponentLogin* mainComp = new MainComponentLogin();
+    RecordingManager* recordingManager = new RecordingManager();
 
 public:
 
@@ -41,5 +44,19 @@ public:
 
         // Wrong username returns empty
         CPPUNIT_ASSERT(mainComp->getAccountInfo("johnny") == "");
+    }
+
+    void testRecordingStatus()
+    {
+        // Initially not recording
+        CPPUNIT_ASSERT(!recordingManager->getIsRecording());
+
+        // Start recording
+        recordingManager->startRecording();
+        CPPUNIT_ASSERT(recordingManager->getIsRecording());
+
+        // Stop recording
+        recordingManager->stopRecording();
+        CPPUNIT_ASSERT(!recordingManager->getIsRecording());
     }
 };
