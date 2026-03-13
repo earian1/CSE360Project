@@ -1,6 +1,8 @@
 #include "MainComponent.h"
 #include <string>
 #include <iostream>
+#include <cmath>
+#include <climits>
 using namespace std;
 
 MainComponent::~MainComponent() = default;
@@ -9,31 +11,42 @@ class BufferAudioSource : public juce::PositionableAudioSource
 {
 public:
     BufferAudioSource(const juce::AudioBuffer<float>& buffer, int numSamples)
-        : sourceBuffer(buffer), totalSamples(numSamples), position(0) {}
+        : sourceBuffer(buffer), totalSamples(numSamples), position(0), playbackRate(1.0) {}
 
     void prepareToPlay(int, double) override { position = 0; }
     void releaseResources() override {}
 
-    void getNextAudioBlock(const juce::AudioSourceChannelInfo& info) override
-    {
-        const int remaining = totalSamples - position;
-        const int toFill = juce::jmin(info.numSamples, remaining);
-
-        if (toFill > 0)
-        {
-            for (int ch = 0; ch < info.buffer->getNumChannels(); ++ch)
-            {
-                const int srcCh = juce::jmin(ch, sourceBuffer.getNumChannels() - 1);
-                info.buffer->copyFrom(ch, info.startSample, sourceBuffer, srcCh, position, toFill);
-            }
-            position += toFill;
-        }
-
-        if (toFill < info.numSamples)
-            info.buffer->clear(info.startSample + toFill, info.numSamples - toFill);
+    void setPlaybackRate(double rate) { playbackRate = rate; }
+    void setVolume(float vol) {
+        volume = vol;
     }
 
-    // Required by PositionableAudioSource
+    void getNextAudioBlock(const juce::AudioSourceChannelInfo& info) override
+    {
+        for (int i = 0; i < info.numSamples; ++i)
+        {
+            int srcPos = (int)(position + i * playbackRate);
+
+            if (srcPos >= trimLength || srcPos >= totalSamples)
+            {
+                // silence the rest
+                for (int ch = 0; ch < info.buffer->getNumChannels(); ++ch)
+                    info.buffer->setSample(ch, info.startSample + i, 0.0f);
+            }
+            else
+            {
+                for (int ch = 0; ch < info.buffer->getNumChannels(); ++ch)
+                {
+                    const int srcCh = juce::jmin(ch, sourceBuffer.getNumChannels() - 1);
+                    info.buffer->setSample(ch, info.startSample + i, sourceBuffer.getSample(srcCh, srcPos)* volume);
+                }
+            }
+        }
+        position += (int)(info.numSamples * playbackRate);
+    }
+
+    void setTrimLength(int samples) { trimLength = samples; }
+
     void setNextReadPosition(juce::int64 newPosition) override { position = (int)newPosition; }
     juce::int64 getNextReadPosition() const override { return position; }
     juce::int64 getTotalLength() const override { return totalSamples; }
@@ -42,7 +55,10 @@ public:
 private:
     const juce::AudioBuffer<float>& sourceBuffer;
     int totalSamples;
+    int trimLength = INT_MAX;
     int position;
+    double playbackRate { 1.0 };
+    float volume { 1.0f };
 };
 
 
@@ -67,16 +83,15 @@ MainComponent::MainComponent(juce::ApplicationProperties& props)
 
 void MainComponent::setupUI()
 {   
-
     saveButton.onClick = [this]()
     {
         saveRecording();
     };
 
-        playButton.onClick = [this]()
-        {
-            playRecordedAudio();    
-        };
+    playButton.onClick = [this]()
+    {
+        playRecordedAudio();
+    };
 
     recordingStatusLabel.setText("Recording, 0 samples", juce::dontSendNotification);
     recordingStatusLabel.setColour(juce::Label::textColourId, juce::Colours::red);
@@ -252,14 +267,6 @@ void MainComponent::setupUI()
     
     };
 
-    stopButton.onClick = [this]()
-    {
-        transportSource.stop();
-    };
-
-
-
-
 
 //deviceManager.initialiseWithDefaultDevices
 
@@ -353,6 +360,76 @@ if (!device || device->getActiveInputChannels().countNumberOfSetBits() == 0)
     saveButton.setEnabled(false);
     juce::Logger::writeToLog("No microphone detected — recording disabled.");
 }
+
+pitchSlider.setRange(-12.0, 12.0, 0.1);
+pitchSlider.setValue(0.0);
+pitchSlider.onValueChange = [this]()
+{
+    if (bufferSource != nullptr)
+    {
+        double semitoneRatio = pitchSlider.getValue();
+        double rate = pow(2.0, semitoneRatio / 12.0);
+        bufferSource->setPlaybackRate(rate);
+}
+};
+
+lengthSlider.setRange(0.0, 1.0, 0.01);
+lengthSlider.setValue(1.0);
+lengthSlider.onValueChange = [this]()
+{
+    if (bufferSource != nullptr)
+    {
+        int trimSamples = (int)(lengthSlider.getValue() * recordingPosition);
+        bufferSource->setTrimLength(trimSamples);
+    }
+};
+
+volumeSlider.setRange(0.0, 1.0, 0.01);
+volumeSlider.setValue(1.0);
+volumeSlider.onValueChange = [this]()
+{
+    if (bufferSource != nullptr)
+        bufferSource->setVolume((float)volumeSlider.getValue());
+};
+
+   pauseButton.onClick = [this]()
+{
+    if (transportSource.isPlaying())
+        transportSource.stop();
+    else
+        transportSource.start();
+};
+
+positionSlider.setRange(0.0, 1.0, 0.001);
+positionSlider.setValue(0.0);
+positionSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+
+positionSlider.onDragStart = [this]() { isScrubbing = true; };
+
+positionSlider.onDragEnd = [this]()
+{
+    if (bufferSource != nullptr)
+    {
+        int newPos = (int)(positionSlider.getValue() * recordingPosition);
+        bufferSource->setNextReadPosition(newPos);
+    }
+    isScrubbing = false;
+};
+
+positionLabel.setText("0:00 / 0:00", juce::dontSendNotification);
+positionLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+positionLabel.setJustificationType(juce::Justification::centred);
+
+addAndMakeVisible(pauseButton);
+addAndMakeVisible(positionSlider);
+addAndMakeVisible(positionLabel);
+
+pauseButton.setVisible(false);
+positionSlider.setVisible(false);
+positionLabel.setVisible(false);
+
+startTimer(50); // update every 50ms
+
 
 }
 
@@ -454,8 +531,19 @@ void MainComponent::playRecordedAudio()
 
     bufferSource = std::make_unique<BufferAudioSource>(playbackBuffer, recordingPosition);
 
+
+    double semitoneRatio = pitchSlider.getValue();
+    double rate = pow(2.0, semitoneRatio / 12.0);
+    bufferSource->setPlaybackRate(rate);
+
+    int trimSamples = (int)(lengthSlider.getValue() * recordingPosition);
+    bufferSource->setTrimLength(trimSamples);
+
     auto* device = deviceManager.getCurrentAudioDevice();
     double sampleRate = device ? device->getCurrentSampleRate() : 44100.0;
+
+    bufferSource->setVolume((float)volumeSlider.getValue());
+    positionSlider.setValue(0.0, juce::dontSendNotification);
 
     transportSource.setSource(bufferSource.get(), 0, nullptr, sampleRate);
     transportSource.start();
@@ -506,6 +594,10 @@ void MainComponent::updateVisibility()
     volumeLabel.setVisible(isOwner);
     volumeSlider.setVisible(isOwner);
     clusterMapPlaceholder.setVisible(isOwner);
+
+    pauseButton.setVisible(isOwner);
+    positionSlider.setVisible(isOwner);
+    positionLabel.setVisible(isOwner);
 }
 
 
@@ -560,7 +652,7 @@ void MainComponent::resized()
         {
             recordButton.setBounds(area.removeFromTop(buttonHeight));
             playButton.setBounds(area.removeFromTop(buttonHeight));
-            stopButton.setBounds(area.removeFromTop(buttonHeight));
+            pauseButton.setBounds(area.removeFromTop(buttonHeight));
             saveButton.setBounds(area.removeFromTop(buttonHeight));
             createGuestButton.setBounds(area.removeFromTop(buttonHeight));
 
@@ -577,6 +669,9 @@ void MainComponent::resized()
             clusterMapPlaceholder.setBounds(area);
 
             recordingStatusLabel.setBounds(area.removeFromTop(25));
+
+            positionSlider.setBounds(area.removeFromTop(20));
+            positionLabel.setBounds(area.removeFromTop(20));
         }
     }
 }
@@ -667,6 +762,33 @@ void MainComponent::audioDeviceIOCallbackWithContext(
     // If using transportSource for playback, it will automatically fill output buffers
 }
 
+void MainComponent::timerCallback()
+{
+    if (bufferSource == nullptr || isScrubbing)
+        return;
+
+    double sampleRate = 44100.0;
+    auto* device = deviceManager.getCurrentAudioDevice();
+    if (device) sampleRate = device->getCurrentSampleRate();
+
+    int currentPos = (int)bufferSource->getNextReadPosition();
+    double currentSecs = currentPos / sampleRate;
+    double totalSecs = recordingPosition / sampleRate;
+
+    if (totalSecs > 0)
+        positionSlider.setValue(currentPos / (double)recordingPosition, juce::dontSendNotification);
+
+    auto toTimeString = [](double secs) -> juce::String
+    {
+        int m = (int)(secs / 60);
+        int s = (int)(secs) % 60;
+        return juce::String(m) + ":" + (s < 10 ? "0" : "") + juce::String(s);
+    };
+
+    positionLabel.setText(toTimeString(currentSecs) + " / " + toTimeString(totalSecs),
+                          juce::dontSendNotification);
+}
+
 
 
 
@@ -691,6 +813,8 @@ void MainComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
     if (menuItemID == 1)
         juce::JUCEApplication::getInstance()->systemRequestedQuit();
 }
+
+
 
 
 

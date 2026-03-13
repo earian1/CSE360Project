@@ -8,7 +8,8 @@ class BufferAudioSource;
 class MainComponent final
     : public juce::Component,
       public juce::MenuBarModel,
-      public juce::AudioIODeviceCallback
+      public juce::AudioIODeviceCallback,
+      public juce::Timer
 {
 public:
     explicit MainComponent(juce::ApplicationProperties& props);
@@ -105,12 +106,21 @@ private:
     // File chooser
     std::unique_ptr<juce::FileChooser> fileChooser;
 
+    // Timer for updating playback position
+    juce::TextButton pauseButton { "Pause" };
+    juce::TextButton resumeButton { "Resume" };
+    juce::Slider positionSlider;
+    juce::Label positionLabel;
+    bool isScrubbing { false };
+
+
     // Helpers
     void setupUI();
     void updateVisibility();
     bool userExists() const;
     void saveUserInfo(const juce::String&, const juce::String&, const juce::String&, const juce::String&);
     void loadUserInfo(juce::String&, juce::String&, juce::String&, juce::String&) const;
+    void timerCallback() override;
 
     juce::String getCurrentUserRole() const
     {
