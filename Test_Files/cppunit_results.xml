@@ -11,9 +11,21 @@
     <Test id="3">
       <Name>UserManagementTest::testRecordingStatus</Name>
     </Test>
+    <Test id="4">
+      <Name>UserManagementTest::testPasswordValidation</Name>
+    </Test>
+    <Test id="5">
+      <Name>UserManagementTest::testSaveRecording</Name>
+    </Test>
+    <Test id="6">
+      <Name>UserManagementTest::testPlaybackState</Name>
+    </Test>
+    <Test id="7">
+      <Name>UserManagementTest::testVolumeSliderRange</Name>
+    </Test>
   </SuccessfulTests>
   <Statistics>
-    <Tests>3</Tests>
+    <Tests>7</Tests>
     <FailuresTotal>0</FailuresTotal>
     <Errors>0</Errors>
     <Failures>0</Failures>

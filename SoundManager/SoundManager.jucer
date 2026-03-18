@@ -4,10 +4,10 @@
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1">
   <MAINGROUP id="rdv3r3" name="SoundManager">
     <GROUP id="{9EE53BE9-D1A5-EC74-3B73-D6A91DA0455A}" name="Source"/>
-    <FILE id="f9wtan" name="Main.cpp" compile="1" resource="0" file="../Main.cpp"/>
-    <FILE id="LQQ0RQ" name="MainComponent.h" compile="0" resource="0" file="../MainComponent.h"/>
-    <FILE id="R21uIv" name="MainComponent.cpp" compile="1" resource="0"
-          file="../MainComponent.cpp"/>
+    <FILE id="acFZtZ" name="Main.cpp" compile="1" resource="0" file="Source/Main.cpp"/>
+    <FILE id="HqGkyy" name="MainComponent.cpp" compile="1" resource="0"
+          file="Source/MainComponent.cpp"/>
+    <FILE id="XDZLxI" name="MainComponent.h" compile="0" resource="0" file="Source/MainComponent.h"/>
   </MAINGROUP>
   <MODULES>
     <MODULE id="juce_audio_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>

@@ -619,27 +619,62 @@ void MainComponent::resized()
 
     if (currentState == AppState::FIRST_USER_SETUP)
     {
-        usernameLabel_setup.setBounds(area.removeFromTop(labelHeight));
-        usernameField_setup.setBounds(area.removeFromTop(fieldHeight).reduced(0, spacing));
-        passwordLabel_setup.setBounds(area.removeFromTop(labelHeight));
-        passwordField_setup.setBounds(area.removeFromTop(fieldHeight).reduced(0, spacing));
-        accountInfoLabel_setup.setBounds(area.removeFromTop(labelHeight));
-        accountInfoField_setup.setBounds(area.removeFromTop(fieldHeight).reduced(0, spacing));
-        roleLabel_setup.setBounds(area.removeFromTop(labelHeight));
-        roleSelector_setup.setBounds(area.removeFromTop(fieldHeight).reduced(0, spacing));
-        submitButton.setBounds(area.removeFromTop(buttonHeight).withWidth(buttonWidth).withX(getWidth()/2 - buttonWidth/2));
-    }
-    else if (currentState == AppState::LOGIN)
-    {
-        usernameLabel_login.setBounds(area.removeFromTop(labelHeight));
-        usernameField_login.setBounds(area.removeFromTop(fieldHeight).reduced(0, spacing));
-        passwordLabel_login.setBounds(area.removeFromTop(labelHeight));
-        passwordField_login.setBounds(area.removeFromTop(fieldHeight).reduced(0, spacing));
-        loginButton.setBounds(area.removeFromTop(buttonHeight).withWidth(buttonWidth).withX(getWidth()/2 - buttonWidth/2));
+        const int narrowWidth = 400;
 
-        area.removeFromTop(spacing);
-        backButton.setBounds(area.removeFromTop(buttonHeight).withWidth(buttonWidth).withX(getWidth()/2 - buttonWidth/2));
+        usernameLabel_setup.setBounds(area.removeFromTop(labelHeight));
+        usernameField_setup.setBounds(area.removeFromTop(fieldHeight).reduced(0, spacing).withWidth(narrowWidth));
+        passwordLabel_setup.setBounds(area.removeFromTop(labelHeight));
+        passwordField_setup.setBounds(area.removeFromTop(fieldHeight).reduced(0, spacing).withWidth(narrowWidth));
+        accountInfoLabel_setup.setBounds(area.removeFromTop(labelHeight));
+        accountInfoField_setup.setBounds(area.removeFromTop(fieldHeight).reduced(0, spacing).withWidth(narrowWidth));
+        roleLabel_setup.setBounds(area.removeFromTop(labelHeight));
+        roleSelector_setup.setBounds(area.removeFromTop(fieldHeight).reduced(0, spacing).withWidth(narrowWidth));
+        area.removeFromTop(20);
+        submitButton.setBounds(area.removeFromTop(buttonHeight).withWidth(buttonWidth).withX(getWidth()/2 - narrowWidth/2 + 50));
     }
+
+    else if (currentState == AppState::LOGIN)
+{
+    int fieldWidth = 350;
+    int fieldHeight = 30;
+    int labelHeight = 20;
+    int buttonHeight = 40;
+    int spacing = 10;
+
+    int extraSpacing = 30;
+
+    // Calculate total height of the form
+    int formHeight = labelHeight + fieldHeight + spacing + 
+                     labelHeight + fieldHeight + spacing +
+                     buttonHeight + spacing +
+                     buttonHeight;
+
+    // Start Y coordinate to center the form vertically
+    int startY = getHeight() / 2 - formHeight / 2 - 50;
+    int centerX = getWidth() / 2 - fieldWidth / 2;
+
+    // Username
+    usernameLabel_login.setBounds(centerX, startY, fieldWidth, labelHeight);
+    startY += labelHeight + spacing;
+    usernameField_login.setBounds(centerX, startY, fieldWidth, fieldHeight);
+    startY += fieldHeight + spacing;
+
+    // Password
+    passwordLabel_login.setBounds(centerX, startY, fieldWidth, labelHeight);
+    startY += labelHeight + spacing;
+    passwordField_login.setBounds(centerX, startY, fieldWidth, fieldHeight);
+    startY += fieldHeight + spacing;
+
+    startY += extraSpacing;
+
+    // Login button
+    loginButton.setBounds(centerX, startY, fieldWidth, buttonHeight);
+    startY += buttonHeight + spacing;
+
+    // Back button
+    backButton.setBounds(centerX, startY, fieldWidth, buttonHeight);
+}
+
     else if (currentState == AppState::MAIN_APP)
     {
         // Guest view
