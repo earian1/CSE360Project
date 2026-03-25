@@ -83,15 +83,14 @@ MainComponent::MainComponent(juce::ApplicationProperties& props)
 
 void MainComponent::setupUI()
 {   
+
+
     saveButton.onClick = [this]()
     {
         saveRecording();
     };
 
-    playButton.onClick = [this]()
-    {
-        playRecordedAudio();
-    };
+
 
     recordingStatusLabel.setText("Recording, 0 samples", juce::dontSendNotification);
     recordingStatusLabel.setColour(juce::Label::textColourId, juce::Colours::red);
@@ -255,10 +254,16 @@ void MainComponent::setupUI()
             recordingPosition = 0;
             recordingBuffer.setSize(2, 44100 * 10); // 10 seconds buffer at 44.1kHz
 
+            repaint(); // trigger paint to show recording indicator
+
+
             juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon, "Recording", "Recording started!");
         }
         else{
             isRecording = false;
+
+            repaint(); // trigger paint to show recording indicator
+
             juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon, "Recording", "Recording stopped!");
 
             juce::Logger::writeToLog("Recording stopped, samples recorded: " + juce::String(recordingPosition));
@@ -392,12 +397,27 @@ volumeSlider.onValueChange = [this]()
         bufferSource->setVolume((float)volumeSlider.getValue());
 };
 
+    pauseButton.setButtonText("");
+    pauseButton.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
    pauseButton.onClick = [this]()
 {
+
+    if (bufferSource == nullptr && recordingPosition > 0)
+    {
+        playRecordedAudio(); // loads + starts playback
+        return;
+    }
+
+    if (bufferSource == nullptr && bufferSource->getNextReadPosition() >= recordingPosition)
+    {
+        bufferSource->setNextReadPosition(0);
+    }
+
     if (transportSource.isPlaying())
         transportSource.stop();
     else
         transportSource.start();
+    repaint();
 };
 
 positionSlider.setRange(0.0, 1.0, 0.001);
@@ -428,7 +448,7 @@ pauseButton.setVisible(false);
 positionSlider.setVisible(false);
 positionLabel.setVisible(false);
 
-startTimer(50); // update every 50ms
+startTimer(50); // update every 25ms
 
 
 }
@@ -583,7 +603,6 @@ void MainComponent::updateVisibility()
 
     // OWNER DASHBOARD
     recordButton.setVisible(isOwner);
-    playButton.setVisible(isOwner);
     stopButton.setVisible(isOwner);
     saveButton.setVisible(isOwner);
     createGuestButton.setVisible(isOwner);
@@ -603,7 +622,46 @@ void MainComponent::updateVisibility()
 
 void MainComponent::paint(juce::Graphics& g)
 {
+    // BACKGROUND FIRST
     g.fillAll(getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId));
+
+    // ---------- PLAY/PAUSE BUTTON ----------
+    auto bounds = pauseButton.getBounds().toFloat().reduced(8);
+
+    g.setColour(juce::Colours::darkgrey);
+    g.fillEllipse(pauseButton.getBounds().toFloat());
+
+    g.setColour(juce::Colours::white);
+
+    if (transportSource.isPlaying())
+    {
+        float w = bounds.getWidth() / 4;
+        g.fillRect(bounds.getX(), bounds.getY(), w, bounds.getHeight());
+        g.fillRect(bounds.getRight() - w, bounds.getY(), w, bounds.getHeight());
+    }
+    else
+    {
+        juce::Path triangle;
+        triangle.startNewSubPath(bounds.getX(), bounds.getY());
+        triangle.lineTo(bounds.getRight(), bounds.getCentreY());
+        triangle.lineTo(bounds.getX(), bounds.getBottom());
+        triangle.closeSubPath();
+
+        g.fillPath(triangle);
+    }
+
+    // ---------- RECORDING DOT ----------
+    if (isRecording && showRecordingDot)
+    {
+        g.setColour(juce::Colours::red);
+
+        auto bounds = recordingStatusLabel.getBounds();
+
+        int dotX = juce::jmax(bounds.getX() - 20, 0);
+        int dotY = bounds.getY() + bounds.getHeight()/2 - 6;
+
+        g.fillEllipse(dotX, dotY, 12, 12);
+    }
 }
 // ---------- LAYOUT ----------
 void MainComponent::resized()
@@ -686,8 +744,6 @@ void MainComponent::resized()
         else if (getCurrentUserRole() == "Owner")
         {
             recordButton.setBounds(area.removeFromTop(buttonHeight));
-            playButton.setBounds(area.removeFromTop(buttonHeight));
-            pauseButton.setBounds(area.removeFromTop(buttonHeight));
             saveButton.setBounds(area.removeFromTop(buttonHeight));
             createGuestButton.setBounds(area.removeFromTop(buttonHeight));
 
@@ -707,6 +763,21 @@ void MainComponent::resized()
 
             positionSlider.setBounds(area.removeFromTop(20));
             positionLabel.setBounds(area.removeFromTop(20));
+
+            int controlHeight = 40;
+
+            // Put controls at bottom
+            int bottomPadding = 20; // distance from bottom controls
+            int labelHeight = 25;
+
+            // timeline + pause button area
+            auto bottomArea = getLocalBounds().removeFromBottom(80).reduced(20);
+            pauseButton.setBounds(bottomArea.removeFromLeft(controlHeight));
+            positionSlider.setBounds(bottomArea.removeFromTop(20));
+            positionLabel.setBounds(bottomArea.removeFromTop(20));
+
+            // recording status a bit above
+            recordingStatusLabel.setBounds(20, getHeight() - 80 - bottomPadding - labelHeight, getWidth() - 40, labelHeight);
         }
     }
 }
@@ -798,7 +869,25 @@ void MainComponent::audioDeviceIOCallbackWithContext(
 }
 
 void MainComponent::timerCallback()
-{
+{    
+
+ if (isRecording)
+     // ---------- BLINKING DOT ----------
+    static int blinkCounter = 0;       // keeps track of timer ticks
+    blinkCounter++;
+
+    if (blinkCounter >= 5)            // 10 * 50ms = 500ms blink interval
+    {
+        if (isRecording)
+            showRecordingDot = !showRecordingDot;  // toggle dot
+        else
+            showRecordingDot = false;              // hide if not recording
+
+        repaint();                    // repaint to show/hide dot
+        blinkCounter = 0;             // reset counter
+    }
+
+
     if (bufferSource == nullptr || isScrubbing)
         return;
 
@@ -822,6 +911,20 @@ void MainComponent::timerCallback()
 
     positionLabel.setText(toTimeString(currentSecs) + " / " + toTimeString(totalSecs),
                           juce::dontSendNotification);
+
+    if (bufferSource != nullptr && !transportSource.isPlaying())
+    {
+    int currentPos = (int)bufferSource->getNextReadPosition();
+
+    // If we reached the end
+    if (currentPos >= recordingPosition)
+    {
+        bufferSource->setNextReadPosition(0);   // rewind to start
+        positionSlider.setValue(0.0, juce::dontSendNotification);
+        repaint(); // update play icon
+    }
+}
+   
 }
 
 
