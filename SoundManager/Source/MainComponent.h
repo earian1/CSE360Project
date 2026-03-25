@@ -10,6 +10,7 @@ class MainComponent final
       public juce::MenuBarModel,
       public juce::AudioIODeviceCallback,
       public juce::Timer
+  
 {
 public:
     explicit MainComponent(juce::ApplicationProperties& props);
@@ -89,6 +90,7 @@ private:
     juce::AudioBuffer<float> recordingBuffer;
     bool isRecording { false };
     int recordingPosition = 0;
+    bool showRecordingDot { true };
 
     // Recording status
     juce::Label recordingStatusLabel;
@@ -113,6 +115,8 @@ private:
     juce::Label positionLabel;
     bool isScrubbing { false };
 
+    int blinkCounter { 0 };
+
 
     // Helpers
     void setupUI();
@@ -121,6 +125,8 @@ private:
     void saveUserInfo(const juce::String&, const juce::String&, const juce::String&, const juce::String&);
     void loadUserInfo(juce::String&, juce::String&, juce::String&, juce::String&) const;
     void timerCallback() override;
+
+    juce::Component recordingDot;
 
     juce::String getCurrentUserRole() const
     {
