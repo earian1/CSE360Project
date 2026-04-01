@@ -248,29 +248,24 @@ void MainComponent::setupUI()
 
     // ---------- owner dashboard ----------
     recordButton.onClick = [this]()
+{
+    juce::Logger::writeToLog("Record button bounds: " + recordButton.getBounds().toString());
+    if (!isRecording)
     {
-        if (!isRecording){
-            isRecording = true;
-            recordingPosition = 0;
-            recordingBuffer.setSize(2, 44100 * 10); // 10 seconds buffer at 44.1kHz
-
-            repaint(); // trigger paint to show recording indicator
-
-
-            juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon, "Recording", "Recording started!");
-        }
-        else{
-            isRecording = false;
-
-            repaint(); // trigger paint to show recording indicator
-
-            juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon, "Recording", "Recording stopped!");
-
-            juce::Logger::writeToLog("Recording stopped, samples recorded: " + juce::String(recordingPosition));
-
-        }
-    
-    };
+        isRecording = true;
+        recordingPosition = 0;
+        recordingBuffer.setSize(2, 44100 * 10);
+        repaint();
+        juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon, "Recording", "Recording started!");
+    }
+    else
+    {
+        isRecording = false;
+        repaint();
+        juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon, "Recording", "Recording stopped!");
+        juce::Logger::writeToLog("Recording stopped, samples recorded: " + juce::String(recordingPosition));
+    }
+};
 
 
 //deviceManager.initialiseWithDefaultDevices
@@ -358,13 +353,7 @@ else
     deviceManager.setAudioDeviceSetup(setup, true);
 }
 
-auto* device = deviceManager.getCurrentAudioDevice();
-if (!device || device->getActiveInputChannels().countNumberOfSetBits() == 0)
-{
-    recordButton.setEnabled(false);
-    saveButton.setEnabled(false);
-    juce::Logger::writeToLog("No microphone detected — recording disabled.");
-}
+
 
 pitchSlider.setRange(-12.0, 12.0, 0.1);
 pitchSlider.setValue(0.0);
@@ -408,7 +397,7 @@ volumeSlider.onValueChange = [this]()
         return;
     }
 
-    if (bufferSource == nullptr && bufferSource->getNextReadPosition() >= recordingPosition)
+    if (bufferSource != nullptr && bufferSource->getNextReadPosition() >= recordingPosition)
     {
         bufferSource->setNextReadPosition(0);
     }
@@ -622,11 +611,11 @@ void MainComponent::updateVisibility()
 
 void MainComponent::paint(juce::Graphics& g)
 {
-    // BACKGROUND FIRST
+    // ---------- BACKGROUND ----------
     g.fillAll(getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId));
 
     // ---------- PLAY/PAUSE BUTTON ----------
-    auto bounds = pauseButton.getBounds().toFloat().reduced(8);
+    auto pauseBounds = pauseButton.getBounds().toFloat().reduced(8);
 
     g.setColour(juce::Colours::darkgrey);
     g.fillEllipse(pauseButton.getBounds().toFloat());
@@ -635,22 +624,39 @@ void MainComponent::paint(juce::Graphics& g)
 
     if (transportSource.isPlaying())
     {
-        float w = bounds.getWidth() / 4;
-        g.fillRect(bounds.getX(), bounds.getY(), w, bounds.getHeight());
-        g.fillRect(bounds.getRight() - w, bounds.getY(), w, bounds.getHeight());
+        float w = pauseBounds.getWidth() / 4;
+        g.fillRect(pauseBounds.getX(), pauseBounds.getY(), w, pauseBounds.getHeight());
+        g.fillRect(pauseBounds.getRight() - w, pauseBounds.getY(), w, pauseBounds.getHeight());
     }
     else
     {
         juce::Path triangle;
-        triangle.startNewSubPath(bounds.getX(), bounds.getY());
-        triangle.lineTo(bounds.getRight(), bounds.getCentreY());
-        triangle.lineTo(bounds.getX(), bounds.getBottom());
+        triangle.startNewSubPath(pauseBounds.getX(), pauseBounds.getY());
+        triangle.lineTo(pauseBounds.getRight(), pauseBounds.getCentreY());
+        triangle.lineTo(pauseBounds.getX(), pauseBounds.getBottom());
         triangle.closeSubPath();
 
         g.fillPath(triangle);
     }
 
-    // ---------- RECORDING DOT ----------
+    // ---------- RECORD BUTTON (BOTTOM LEFT) ----------
+    auto recordBounds = recordButton.getBounds().toFloat();
+
+    // outer circle
+    g.setColour(juce::Colours::darkgrey);
+    g.fillEllipse(recordBounds);
+
+    // inner red circle
+    auto inner = recordBounds.reduced(12);
+
+    if (isRecording)
+        g.setColour(juce::Colours::red);           // solid when recording
+    else
+        g.setColour(juce::Colours::darkred);       // darker when idle
+
+    g.fillEllipse(inner);
+
+    // ---------- RECORDING DOT (BLINKING NEXT TO LABEL) ----------
     if (isRecording && showRecordingDot)
     {
         g.setColour(juce::Colours::red);
@@ -658,7 +664,7 @@ void MainComponent::paint(juce::Graphics& g)
         auto bounds = recordingStatusLabel.getBounds();
 
         int dotX = juce::jmax(bounds.getX() - 20, 0);
-        int dotY = bounds.getY() + bounds.getHeight()/2 - 6;
+        int dotY = bounds.getY() + bounds.getHeight() / 2 - 6;
 
         g.fillEllipse(dotX, dotY, 12, 12);
     }
@@ -743,10 +749,17 @@ void MainComponent::resized()
         // Owner view
         else if (getCurrentUserRole() == "Owner")
         {
-            recordButton.setBounds(area.removeFromTop(buttonHeight));
-            saveButton.setBounds(area.removeFromTop(buttonHeight));
-            createGuestButton.setBounds(area.removeFromTop(buttonHeight));
+            menuBar.setBounds(0, 0, getWidth(), 25);
+            int size = 60; // square size
+            int bottomControlsHeight = 100; // same as your bottomArea
 
+            recordButton.setBounds(
+                20,
+                getHeight() - bottomControlsHeight - size - 20,
+                size,
+                size
+            );
+            
             pitchLabel.setBounds(area.removeFromTop(sliderHeight / 2));
             pitchSlider.setBounds(area.removeFromTop(sliderHeight));
 
@@ -757,7 +770,7 @@ void MainComponent::resized()
             volumeSlider.setBounds(area.removeFromTop(sliderHeight));
 
             soundList.setBounds(area.removeFromTop(150));
-            clusterMapPlaceholder.setBounds(area);
+            clusterMapPlaceholder.setInterceptsMouseClicks(false, false);
 
             recordingStatusLabel.setBounds(area.removeFromTop(25));
 
@@ -770,6 +783,8 @@ void MainComponent::resized()
             int bottomPadding = 20; // distance from bottom controls
             int labelHeight = 25;
 
+            int matgin = 20;
+
             // timeline + pause button area
             auto bottomArea = getLocalBounds().removeFromBottom(80).reduced(20);
             pauseButton.setBounds(bottomArea.removeFromLeft(controlHeight));
@@ -778,6 +793,8 @@ void MainComponent::resized()
 
             // recording status a bit above
             recordingStatusLabel.setBounds(20, getHeight() - 80 - bottomPadding - labelHeight, getWidth() - 40, labelHeight);
+
+            
         }
     }
 }
@@ -869,22 +886,15 @@ void MainComponent::audioDeviceIOCallbackWithContext(
 }
 
 void MainComponent::timerCallback()
-{    
-
- if (isRecording)
-     // ---------- BLINKING DOT ----------
-    static int blinkCounter = 0;       // keeps track of timer ticks
+{
+    static int blinkCounter = 0;
     blinkCounter++;
 
-    if (blinkCounter >= 5)            // 10 * 50ms = 500ms blink interval
+    if (blinkCounter >= 5)
     {
-        if (isRecording)
-            showRecordingDot = !showRecordingDot;  // toggle dot
-        else
-            showRecordingDot = false;              // hide if not recording
-
-        repaint();                    // repaint to show/hide dot
-        blinkCounter = 0;             // reset counter
+        showRecordingDot = isRecording ? !showRecordingDot : false;
+        repaint();
+        blinkCounter = 0;
     }
 
 
@@ -941,18 +951,56 @@ juce::StringArray MainComponent::getMenuBarNames()
 juce::PopupMenu MainComponent::getMenuForIndex(int menuIndex, const juce::String& menuName)
 {
     juce::PopupMenu menu;
-    if (menuIndex == 0) menu.addItem(1, "Exit");
-    if (menuIndex == 1) menu.addItem(2, "Settings");
+
+    if (menuIndex == 0) // File
+    {
+        menu.addItem(1, "Save Recording");
+        menu.addItem(2, "Save As...");
+        menu.addSeparator();
+        menu.addItem(3, "Create Guest Account");
+        menu.addSeparator();
+        menu.addItem(4, "Exit");
+    }
+
+    if (menuIndex == 1) // Edit
+    {
+        menu.addItem(5, "Settings");
+    }
+
     return menu;
 }
 //fileChooser.browseForFileToSave
-void MainComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
+void MainComponent::menuItemSelected(int menuItemID, int)
 {
-    if (menuItemID == 1)
-        juce::JUCEApplication::getInstance()->systemRequestedQuit();
+    switch (menuItemID)
+    {
+        case 1: // Save Recording
+            saveRecording();
+            break;
+
+        case 2: // Save As (same for now)
+            saveRecording();
+            break;
+
+        case 3: // Create Guest Account
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::InfoIcon,
+                "Create Guest Account",
+                "Create Guest Account clicked!"
+            );
+            break;
+
+        case 4: // Exit
+            juce::JUCEApplication::getInstance()->systemRequestedQuit();
+            break;
+
+        case 5: // Settings
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::InfoIcon,
+                "Settings",
+                "Settings clicked!"
+            );
+            break;
+    }
 }
-
-
-
-
 
