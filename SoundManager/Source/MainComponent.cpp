@@ -468,7 +468,7 @@ void MainComponent::updateVisibility()
 
     recordButton.setVisible(isOwner);
     saveButton.setVisible(isOwner);
-    createGuestButton.setVisible(isOwner);
+    createGuestButton.setVisible(true);
 
     playButton.setVisible(isOwner || isGuest);
     stopButton.setVisible(isOwner || isGuest);
