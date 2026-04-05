@@ -1,12 +1,13 @@
 #include "MainComponent.h"
 
+using namespace std;
+
 MainComponent::MainComponent(juce::ApplicationProperties& props)
 {
     userStorage = props.getUserSettings();
     setSize(1000, 700);
 
-    addAndMakeVisible(menuBar);
-    menuBar.setModel(this);
+    
 
     ensureDefaultAccounts();
     setupUI();
@@ -112,6 +113,9 @@ void MainComponent::setupUI()
 
             if (selectedRole == 1)
             {
+                addAndMakeVisible(menuBar);
+                menuBar.setModel(this);
+
                 juce::String storedUsername, storedPassword, storedAccountInfo, storedRole;
                 loadUserInfo(storedUsername, storedPassword, storedAccountInfo, storedRole);
 
@@ -197,6 +201,7 @@ void MainComponent::setupUI()
 
     // Sound list
     soundList.setModel(this);
+    soundList.setRowHeight(15);
     addAndMakeVisible(soundList);
 
     // Sliders
@@ -659,18 +664,26 @@ void MainComponent::refreshSoundListFromStorage()
     juce::String namesJoined = userStorage->getValue("savedSoundNames", "");
     juce::String pathsJoined = userStorage->getValue("savedSoundPaths", "");
 
-    if (!namesJoined.isEmpty())
-        savedSoundNames.addTokens(namesJoined, "||", "");
+    if (!namesJoined.isEmpty()) {
+        savedSoundNames = juce::StringArray::fromTokens(namesJoined, "|", "");
 
-    if (!pathsJoined.isEmpty())
-        savedSoundPaths.addTokens(pathsJoined, "||", "");
+        savedSoundNames.removeEmptyStrings();
+    }
+    if (!pathsJoined.isEmpty()) {
+        savedSoundPaths = juce::StringArray::fromTokens(pathsJoined, "|", "");
 
+        savedSoundNames.removeEmptyStrings();
+    }
     if (savedSoundNames.size() != savedSoundPaths.size())
     {
         int minSize = juce::jmin(savedSoundNames.size(), savedSoundPaths.size());
         savedSoundNames.removeRange(minSize, savedSoundNames.size() - minSize);
         savedSoundPaths.removeRange(minSize, savedSoundPaths.size() - minSize);
     }
+
+    DBG("Joined names = [" + namesJoined + "]");
+    for (int i = 0; i < savedSoundNames.size(); ++i)
+        DBG("savedSoundNames[" + juce::String(i) + "] = [" + savedSoundNames[i] + "]");
 
     soundList.updateContent();
 }
@@ -844,6 +857,7 @@ void MainComponent::audioDeviceIOCallbackWithContext(const float* const* inputCh
 
 int MainComponent::getNumRows()
 {
+    DBG("savedSoundNames: " + juce::String(savedSoundNames.size()));
     return savedSoundNames.size();
 }
 
@@ -859,7 +873,7 @@ void MainComponent::paintListBoxItem(int rowNumber,
     g.setColour(juce::Colours::white);
 
     if (rowNumber >= 0 && rowNumber < savedSoundNames.size())
-        g.drawText(savedSoundNames[rowNumber], 8, 0, width - 8, height, juce::Justification::centredLeft);
+        g.drawText(savedSoundNames[rowNumber], 8, 0, width - 8, 15, juce::Justification::centredLeft);
 }
 
 void MainComponent::selectedRowsChanged(int lastRowSelected)
@@ -961,7 +975,7 @@ void MainComponent::drawClusterMap(juce::Graphics& g)
 
 juce::StringArray MainComponent::getMenuBarNames()
 {
-    return { "File", "Edit" };
+    return {"File", "Edit"};
 }
 
 juce::PopupMenu MainComponent::getMenuForIndex(int menuIndex, const juce::String& menuName)
@@ -970,25 +984,67 @@ juce::PopupMenu MainComponent::getMenuForIndex(int menuIndex, const juce::String
 
     juce::PopupMenu menu;
 
-    if (menuIndex == 0)
-        menu.addItem(1, "Exit");
-    else if (menuIndex == 1)
-        menu.addItem(2, "Clear Sound Selection");
+    if (menuIndex == 0) {
+        menu.addItem(1, "Load");
+        menu.addItem(2, "Exit");
+    }
+    else if (menuIndex == 1) {
+        menu.addItem(1, "Clear Sound Selection");
+        menu.addItem(2, "Clear Sound List");
+    }
 
     return menu;
 }
 
 void MainComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
 {
-    juce::ignoreUnused(topLevelMenuIndex);
 
-    if (menuItemID == 1)
+    if (topLevelMenuIndex == 0 && menuItemID == 2)
     {
         juce::JUCEApplication::getInstance()->systemRequestedQuit();
     }
-    else if (menuItemID == 2)
+    else if(topLevelMenuIndex == 0 && menuItemID == 1){
+        auto load_file = make_shared<juce::FileChooser>("Load a sound file", juce::File{}, "*.wav;*.mp3;*.aiff");
+        load_file->launchAsync(
+            juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+            [this, load_file](const juce::FileChooser& chooser)
+            {
+                juce::File loaded_file = chooser.getResult();
+
+                if (loaded_file == juce::File{}) {
+                    return;
+                }
+
+                juce::String soundName = loaded_file.getFileName();
+                juce::String soundPath = loaded_file.getFullPathName();
+
+                addSavedSound(soundName, soundPath);
+                refreshSoundListFromStorage();
+                soundList.updateContent();
+                repaint();
+
+            });
+
+    }
+    else if (topLevelMenuIndex == 1 && menuItemID == 1)
     {
         selectedSoundRow = -1;
         soundList.deselectAllRows();
+    }
+    else if (topLevelMenuIndex == 1 && menuItemID == 2)
+    {
+        savedSoundNames.clear();
+        savedSoundPaths.clear();
+
+        selectedSoundRow = -1;
+
+        if (userStorage != nullptr) {
+            userStorage->setValue("savedSoundNames", "");
+            userStorage->setValue("savedSoundPaths", "");
+        }
+
+        soundList.updateContent();
+        soundList.deselectAllRows();
+        repaint();
     }
 }
