@@ -2,6 +2,8 @@
 
 #include <JuceHeader.h>
 
+class BufferAudioSource;
+
 class MainComponent final
     : public juce::Component,
     public juce::MenuBarModel,
@@ -36,6 +38,9 @@ public:
         int height,
         bool rowIsSelected) override;
     void selectedRowsChanged(int lastRowSelected) override;
+    void createGuestAccount();
+    void saveGuestInfo(const juce::String& username, const juce::String& password);
+    void showLoginScreen();
 
 private:
     enum class AppState
@@ -43,6 +48,8 @@ private:
         LOGIN,
         MAIN_APP
     };
+
+    juce::Random random;
 
     juce::PropertiesFile* userStorage{ nullptr };
     AppState currentState{ AppState::LOGIN };
@@ -84,7 +91,9 @@ private:
     juce::AudioTransportSource transportSource;
     std::unique_ptr<juce::AudioFormatReaderSource> currentAudioFile;
     juce::AudioDeviceManager deviceManager;
-
+    std::unique_ptr<BufferAudioSource> bufferSource;  // for playback
+    juce::AudioBuffer<float> playbackBuffer;         // copy of recording for playback
+    std::unique_ptr<juce::FileChooser> fileChooser;
     // Recording
     juce::AudioBuffer<float> recordingBuffer;
     bool isRecording{ false };
@@ -133,6 +142,7 @@ private:
 
     void drawWaveform(juce::Graphics& g);
     void drawClusterMap(juce::Graphics& g);
+    void applySlidersToBufferSource();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

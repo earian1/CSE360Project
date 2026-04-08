@@ -1,6 +1,90 @@
 #include "MainComponent.h"
+#include <string>
+#include <iostream>
+#include <cmath>
+#include <climits>
 
 using namespace std;
+
+class BufferAudioSource : public juce::PositionableAudioSource
+{
+public:
+    BufferAudioSource(const juce::AudioBuffer<float>& buffer, int numSamples)
+        : sourceBuffer(buffer), totalSamples(numSamples), position(0), playbackRate(1.0) {}
+
+    void prepareToPlay(int, double) override { position = 0; }
+    void releaseResources() override {}
+
+    void setPlaybackRate(double rate) { playbackRate = rate; }
+    void setVolume(float vol) {
+        volume = vol;
+    }
+
+    void getNextAudioBlock(const juce::AudioSourceChannelInfo& info) override
+    {
+        for (int i = 0; i < info.numSamples; ++i)
+        {
+            int srcPos = (int)(position + i * playbackRate);
+
+            if (srcPos >= trimLength || srcPos >= totalSamples)
+            {
+                // silence the rest
+                for (int ch = 0; ch < info.buffer->getNumChannels(); ++ch)
+                    info.buffer->setSample(ch, info.startSample + i, 0.0f);
+            }
+            else
+            {
+                for (int ch = 0; ch < info.buffer->getNumChannels(); ++ch)
+                {
+                    const int srcCh = juce::jmin(ch, sourceBuffer.getNumChannels() - 1);
+                    info.buffer->setSample(ch, info.startSample + i, sourceBuffer.getSample(srcCh, srcPos)* volume);
+                }
+            }
+        }
+        position += (int)(info.numSamples * playbackRate);
+    }
+
+    void setTrimLength(int samples) { trimLength = samples; }
+
+    void setNextReadPosition(juce::int64 newPosition) override { position = (int)newPosition; }
+    juce::int64 getNextReadPosition() const override { return position; }
+    juce::int64 getTotalLength() const override { return totalSamples; }
+    bool isLooping() const override { return false; }
+
+private:
+    const juce::AudioBuffer<float>& sourceBuffer;
+    int totalSamples;
+    int trimLength = INT_MAX;
+    int position;
+    double playbackRate { 1.0 };
+    float volume { 1.0f };
+};
+
+
+
+void MainComponent::applySlidersToBufferSource()
+{
+    if (!bufferSource) return;
+
+    // Pitch
+    float pitchValue = pitchSlider.getValue(); // 0-100
+    float rate = (pitchValue < 50.0f)
+                 ? juce::jmap(pitchValue, 0.0f, 50.0f, 0.5f, 1.0f)
+                 : juce::jmap(pitchValue, 50.0f, 100.0f, 1.0f, 2.0f);
+    bufferSource->setPlaybackRate(rate);
+
+    // Volume (logarithmic)
+    float volValue = volumeSlider.getValue(); // 0-100
+    // map slider 0-100 to decibels from -60dB (almost silent) to 0dB (full)
+    float dB = juce::jmap(volValue, 0.0f, 100.0f, -60.0f, 0.0f);
+    float gain = juce::Decibels::decibelsToGain(dB); 
+    bufferSource->setVolume(gain);
+
+    // Length (trim)
+    float lenValue = lengthSlider.getValue(); // 0-100
+    int trimSamples = static_cast<int>(recordingBuffer.getNumSamples() * (lenValue / 100.0f));
+    bufferSource->setTrimLength(trimSamples);
+}
 
 MainComponent::MainComponent(juce::ApplicationProperties& props)
 {
@@ -221,22 +305,48 @@ void MainComponent::setupUI()
     lengthSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
     volumeSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
 
-    pitchSlider.setRange(0.5, 2.0, 0.1);
-    lengthSlider.setRange(0.5, 2.0, 0.1);
-    volumeSlider.setRange(0.0, 1.0, 0.05);
+    pitchSlider.setRange(0, 100, 1);
+    lengthSlider.setRange(0, 100, 1);
+    volumeSlider.setRange(0, 100, 1);
 
-    pitchSlider.setValue(1.0);
-    lengthSlider.setValue(1.0);
-    volumeSlider.setValue(0.8);
+    pitchSlider.setValue(50);   // neutral
+    lengthSlider.setValue(100); // full length
+    volumeSlider.setValue(80);  // default volume
 
     volumeSlider.onValueChange = [this]()
-        {
-            transportSource.setGain((float)volumeSlider.getValue());
-            repaint();
-        };
+    {
+     if (bufferSource)
+    {
+        float volValue = volumeSlider.getValue();
+        float dB = juce::jmap(volValue, 0.0f, 100.0f, -60.0f, 0.0f);
+        float gain = juce::Decibels::decibelsToGain(dB);
+        bufferSource->setVolume(gain);
+    }
+    };
 
-    pitchSlider.onValueChange = [this]() { repaint(); };
-    lengthSlider.onValueChange = [this]() { repaint(); };
+    pitchSlider.onValueChange = [this]()
+    {
+    if (bufferSource)
+    {
+        float value = pitchSlider.getValue();
+        float rate = (value < 50.0f)
+                     ? juce::jmap(value, 0.0f, 50.0f, 0.5f, 1.0f)
+                     : juce::jmap(value, 50.0f, 100.0f, 1.0f, 2.0f);
+        bufferSource->setPlaybackRate(rate);
+    }
+    };
+
+    lengthSlider.onValueChange = [this]()
+    {
+    if (bufferSource && recordingPosition > 0)
+    {
+        int trimSamples = (int)(
+            (lengthSlider.getValue() / 100.0) * recordingPosition
+        );
+
+        bufferSource->setTrimLength(trimSamples);
+    }
+    };
 
     addAndMakeVisible(pitchLabel);
     addAndMakeVisible(lengthLabel);
@@ -279,23 +389,44 @@ void MainComponent::setupUI()
             }
         };
 
+
+
     playButton.onClick = [this]()
+    {
+        transportSource.stop();
+        transportSource.setSource(nullptr);
+
+        if (selectedSoundRow >= 0 && selectedSoundRow < savedSoundPaths.size())
         {
-            if (selectedSoundRow >= 0 && selectedSoundRow < savedSoundPaths.size())
+            // Play a saved file
+            juce::File selectedFile(savedSoundPaths[selectedSoundRow]);
+            if (selectedFile.existsAsFile())
             {
-                juce::File selectedFile(savedSoundPaths[selectedSoundRow]);
+                loadAudioFileForPlayback(selectedFile);
 
-                if (selectedFile.existsAsFile())
-                {
-                    loadAudioFileForPlayback(selectedFile);
-                    transportSource.setGain((float)volumeSlider.getValue());
-                    transportSource.start();
-                    return;
-                }
+                // Apply volume (logarithmic)
+                float volValue = volumeSlider.getValue();
+                float dB = juce::jmap(volValue, 0.0f, 100.0f, -60.0f, 0.0f);
+                transportSource.setGain(juce::Decibels::decibelsToGain(dB));
+
+                transportSource.start();
+                return;
             }
+        }
 
+        // Play recorded audio if no file selected
+        if (recordingPosition > 0)
+        {
             playRecordedAudio();
-        };
+        }
+        else
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::WarningIcon,
+                "Playback Error",
+                "No recording or file selected!");
+        }
+    };
 
     stopButton.onClick = [this]()
         {
@@ -304,79 +435,74 @@ void MainComponent::setupUI()
 
     saveButton.onClick = [this]()
         {
-            if (isRecording)
+              if (isRecording)
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "Save Error",
+            "Please stop recording before saving."
+        );
+        return;
+    }
+
+    if (recordingPosition == 0)
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "Save Error",
+            "No recording available to save!"
+        );
+        return;
+    }
+
+    // Keep FileChooser alive
+    fileChooser = std::make_unique<juce::FileChooser>("Save Recording", juce::File{}, "*.wav");
+
+    fileChooser->launchAsync(
+        juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
+        [this](const juce::FileChooser& chooser)
+        {
+            auto file = chooser.getResult();
+            if (file == juce::File{}) return; // cancelled
+
+            auto outputStream = file.createOutputStream();
+            if (!outputStream)
             {
                 juce::AlertWindow::showMessageBoxAsync(
                     juce::AlertWindow::WarningIcon,
                     "Save Error",
-                    "Please stop recording before saving.");
+                    "Failed to create file stream."
+                );
                 return;
             }
 
-            if (recordingPosition == 0)
+            juce::WavAudioFormat wavFormat;
+            std::unique_ptr<juce::AudioFormatWriter> writer(
+                wavFormat.createWriterFor(outputStream.release(),
+                                          44100,
+                                          recordingBuffer.getNumChannels(),
+                                          16,
+                                          {},
+                                          0));
+
+            if (!writer)
             {
                 juce::AlertWindow::showMessageBoxAsync(
                     juce::AlertWindow::WarningIcon,
                     "Save Error",
-                    "No recording available to save.");
+                    "Failed to create WAV writer."
+                );
                 return;
             }
 
-            juce::FileChooser fileChooser("Save Recording", juce::File{}, "*.wav");
+            writer->writeFromAudioSampleBuffer(recordingBuffer, 0, recordingPosition);
 
-            fileChooser.launchAsync(
-                juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
-                [this](const juce::FileChooser& chooser)
-                {
-                    auto file = chooser.getResult();
-
-                    if (file == juce::File{})
-                        return;
-
-                    if (file.getFileExtension() != ".wav")
-                        file = file.withFileExtension(".wav");
-
-                    juce::WavAudioFormat wavFormat;
-                    std::unique_ptr<juce::FileOutputStream> outputStream(file.createOutputStream());
-
-                    if (outputStream == nullptr)
-                    {
-                        juce::AlertWindow::showMessageBoxAsync(
-                            juce::AlertWindow::WarningIcon,
-                            "Save Error",
-                            "Could not create output stream.");
-                        return;
-                    }
-
-                    std::unique_ptr<juce::AudioFormatWriter> writer(
-                        wavFormat.createWriterFor(outputStream.release(),
-                            currentSampleRate,
-                            recordingBuffer.getNumChannels(),
-                            16,
-                            {},
-                            0));
-
-                    if (writer == nullptr)
-                    {
-                        juce::AlertWindow::showMessageBoxAsync(
-                            juce::AlertWindow::WarningIcon,
-                            "Save Error",
-                            "Failed to create WAV writer.");
-                        return;
-                    }
-
-                    writer->writeFromAudioSampleBuffer(recordingBuffer, 0, recordingPosition);
-
-                    addSavedSound(file.getFileName(), file.getFullPathName());
-                    refreshSoundListFromStorage();
-                    soundList.updateContent();
-                    repaint();
-
-                    juce::AlertWindow::showMessageBoxAsync(
-                        juce::AlertWindow::InfoIcon,
-                        "Save Successful",
-                        "Recording saved successfully.");
-                });
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::InfoIcon,
+                "Save Successful",
+                "Recording saved to: " + file.getFullPathName()
+            );
+        });
         };
 
     createGuestButton.onClick = [this]()
@@ -435,17 +561,44 @@ void MainComponent::setupUI()
 
     // Audio
     formatManager.registerBasicFormats();
-    deviceManager.initialiseWithDefaultDevices(2, 2);
-    deviceManager.addAudioCallback(this);
 
-    if (auto* device = deviceManager.getCurrentAudioDevice())
-        currentSampleRate = device->getCurrentSampleRate();
 
-    if (auto* device = deviceManager.getCurrentAudioDevice())
-    {
-        if (device->getActiveInputChannels().countNumberOfSetBits() == 0)
-            recordButton.setEnabled(false);
-    }
+deviceManager.initialise(2, 2, nullptr, true);
+deviceManager.addAudioCallback(this);
+
+
+juce::StringArray inputDevices;
+
+juce::OwnedArray<juce::AudioIODeviceType> types;
+deviceManager.createAudioDeviceTypes(types);
+
+for (auto* type : types)
+{
+    type->scanForDevices();
+    auto names = type->getDeviceNames(true);
+    inputDevices.addArray(names);
+}
+
+if (!inputDevices.isEmpty())
+{
+    juce::AudioDeviceManager::AudioDeviceSetup setup;
+    deviceManager.getAudioDeviceSetup(setup);
+
+    setup.inputDeviceName = inputDevices[0];
+
+    setup.inputChannels = juce::BigInteger();
+    setup.inputChannels.setRange(0, 2, true);
+
+    setup.outputDeviceName = deviceManager.getCurrentAudioDevice()
+        ? deviceManager.getCurrentAudioDevice()->getName()
+        : "";
+
+    setup.outputChannels = deviceManager.getCurrentAudioDevice()
+        ? deviceManager.getCurrentAudioDevice()->getActiveOutputChannels()
+        : juce::BigInteger(0x3);
+
+    deviceManager.setAudioDeviceSetup(setup, true);
+}
 }
 
 void MainComponent::updateVisibility()
@@ -632,7 +785,7 @@ void MainComponent::loadUserInfo(juce::String& username,
 
 void MainComponent::saveGuestInfo(juce::String& username, juce::String& password)
 {
-    if (&userStorage == NULL)
+    if (userStorage == NULL)
         return;
 
     userStorage->setValue("guestUsername", username);
@@ -672,7 +825,7 @@ void MainComponent::refreshSoundListFromStorage()
     if (!pathsJoined.isEmpty()) {
         savedSoundPaths = juce::StringArray::fromTokens(pathsJoined, "|", "");
 
-        savedSoundNames.removeEmptyStrings();
+        savedSoundPaths.removeEmptyStrings();
     }
     if (savedSoundNames.size() != savedSoundPaths.size())
     {
@@ -715,6 +868,7 @@ bool MainComponent::isGuestLoggedIn() const
     return currentState == AppState::MAIN_APP && loggedInAsGuest;
 }
 
+
 void MainComponent::playRecordedAudio()
 {
     if (recordingPosition == 0)
@@ -722,48 +876,42 @@ void MainComponent::playRecordedAudio()
         juce::AlertWindow::showMessageBoxAsync(
             juce::AlertWindow::WarningIcon,
             "Playback Error",
-            "No recording available to play.");
+            "No recording to play!");
         return;
     }
 
     transportSource.stop();
     transportSource.setSource(nullptr);
-    currentAudioFile.reset();
+    bufferSource.reset();
 
-    juce::MemoryOutputStream memStream;
-    juce::WavAudioFormat wavFormat;
+    playbackBuffer.makeCopyOf(recordingBuffer);
+    playbackBuffer.setSize(playbackBuffer.getNumChannels(), recordingPosition, true, false, false);
 
-    {
-        std::unique_ptr<juce::AudioFormatWriter> writer(
-            wavFormat.createWriterFor(&memStream,
-                currentSampleRate,
-                recordingBuffer.getNumChannels(),
-                16,
-                {},
-                0));
+    bufferSource = std::make_unique<BufferAudioSource>(playbackBuffer, recordingPosition);
 
-        if (writer != nullptr)
-            writer->writeFromAudioSampleBuffer(recordingBuffer, 0, recordingPosition);
-    }
+    // --- FIXED pitch mapping ---
+    float sliderVal = pitchSlider.getValue(); // 0-100
+    float minRate = 0.5f;  // one octave down
+    float maxRate = 2.0f;  // one octave up
+    float normalized = sliderVal / 100.0f;
+    float rate = minRate * std::pow(maxRate/minRate, normalized);
 
-    auto memInputStream = std::make_unique<juce::MemoryInputStream>(
-        memStream.getData(), memStream.getDataSize(), false);
+    bufferSource->setPlaybackRate(rate);
 
-    std::unique_ptr<juce::AudioFormatReader> reader(
-        wavFormat.createReaderFor(memInputStream.release(), true));
+    // Trim
+    int trimSamples = static_cast<int>((lengthSlider.getValue() / 100.0) * recordingPosition);
+    bufferSource->setTrimLength(trimSamples);
 
-    if (reader == nullptr)
-    {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::WarningIcon,
-            "Playback Error",
-            "Failed to create audio reader.");
-        return;
-    }
+    // Volume
+    float volValue = volumeSlider.getValue();
+    float dB = juce::jmap(volValue, 0.0f, 100.0f, -60.0f, 0.0f);
+    bufferSource->setVolume(juce::Decibels::decibelsToGain(dB));
 
-    currentAudioFile.reset(new juce::AudioFormatReaderSource(reader.release(), true));
-    transportSource.setSource(currentAudioFile.get(), 0, nullptr, currentSampleRate);
-    transportSource.setGain((float)volumeSlider.getValue());
+    // Connect to transport
+    auto* device = deviceManager.getCurrentAudioDevice();
+    double sampleRate = device ? device->getCurrentSampleRate() : 44100.0;
+
+    transportSource.setSource(bufferSource.get(), 0, nullptr, sampleRate);
     transportSource.start();
 }
 
