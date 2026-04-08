@@ -1121,6 +1121,24 @@ void MainComponent::drawClusterMap(juce::Graphics& g)
     }
 }
 
+void MainComponent::createGuestAccount() {
+    // 1️⃣ Generate guest username
+    juce::String guestUser = "guest" + juce::String(random.nextInt(1000));
+    
+    // 2️⃣ Set default password
+    juce::String guestPass = "guest";
+    
+    // 3️⃣ Save guest credentials
+    saveGuestInfo(guestUser, guestPass);
+    
+    // 4️⃣ Show confirmation asynchronously
+    juce::AlertWindow::showMessageBoxAsync(
+        juce::AlertWindow::InfoIcon,
+        "Guest Account Created",
+        "Guest account created successfully.\n\nUsername: " + guestUser + "\nPassword: " + guestPass
+    );
+}
+
 juce::StringArray MainComponent::getMenuBarNames()
 {
     return {"File", "Edit"};
@@ -1132,11 +1150,12 @@ juce::PopupMenu MainComponent::getMenuForIndex(int menuIndex, const juce::String
 
     juce::PopupMenu menu;
 
-    if (menuIndex == 0) {
+    if (menuIndex == 0) { // File menu
         menu.addItem(1, "Load");
-        menu.addItem(2, "Exit");
+        menu.addItem(2, "Create Guest Account");
+        menu.addItem(3, "Exit");  // <-- Added Exit as item 3
     }
-    else if (menuIndex == 1) {
+    else if (menuIndex == 1) { // Edit menu
         menu.addItem(1, "Clear Sound Selection");
         menu.addItem(2, "Clear Sound List");
     }
@@ -1146,53 +1165,51 @@ juce::PopupMenu MainComponent::getMenuForIndex(int menuIndex, const juce::String
 
 void MainComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
 {
-
-    if (topLevelMenuIndex == 0 && menuItemID == 2)
-    {
-        juce::JUCEApplication::getInstance()->systemRequestedQuit();
-    }
-    else if(topLevelMenuIndex == 0 && menuItemID == 1){
-        auto load_file = make_shared<juce::FileChooser>("Load a sound file", juce::File{}, "*.wav;*.mp3;*.aiff");
-        load_file->launchAsync(
-            juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-            [this, load_file](const juce::FileChooser& chooser)
-            {
-                juce::File loaded_file = chooser.getResult();
-
-                if (loaded_file == juce::File{}) {
-                    return;
-                }
-
-                juce::String soundName = loaded_file.getFileName();
-                juce::String soundPath = loaded_file.getFullPathName();
-
-                addSavedSound(soundName, soundPath);
-                refreshSoundListFromStorage();
-                soundList.updateContent();
-                repaint();
-
-            });
-
-    }
-    else if (topLevelMenuIndex == 1 && menuItemID == 1)
-    {
-        selectedSoundRow = -1;
-        soundList.deselectAllRows();
-    }
-    else if (topLevelMenuIndex == 1 && menuItemID == 2)
-    {
-        savedSoundNames.clear();
-        savedSoundPaths.clear();
-
-        selectedSoundRow = -1;
-
-        if (userStorage != nullptr) {
-            userStorage->setValue("savedSoundNames", "");
-            userStorage->setValue("savedSoundPaths", "");
+    if (topLevelMenuIndex == 0) { // File menu
+        switch (menuItemID)
+        {
+            case 1: { // Load
+                auto chooser = std::make_shared<juce::FileChooser>("Load a sound file", juce::File{}, "*.wav;*.mp3;*.aiff");
+                chooser->launchAsync(
+                    juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                    [this, chooser](const juce::FileChooser& fc) {
+                        juce::File f = fc.getResult();
+                        if (f.existsAsFile()) {
+                            addSavedSound(f.getFileName(), f.getFullPathName());
+                            refreshSoundListFromStorage();
+                            soundList.updateContent();
+                            repaint();
+                        }
+                    });
+                break;
+            }
+            case 2: // Create Guest Account
+                createGuestAccount();
+                break;
+            case 3: // Exit
+                juce::JUCEApplication::getInstance()->systemRequestedQuit();
+                break;
         }
-
-        soundList.updateContent();
-        soundList.deselectAllRows();
-        repaint();
+    }
+    else if (topLevelMenuIndex == 1) { // Edit menu
+        switch (menuItemID)
+        {
+            case 1: // Clear selection
+                selectedSoundRow = -1;
+                soundList.deselectAllRows();
+                break;
+            case 2: // Clear list
+                savedSoundNames.clear();
+                savedSoundPaths.clear();
+                selectedSoundRow = -1;
+                if (userStorage) {
+                    userStorage->setValue("savedSoundNames", "");
+                    userStorage->setValue("savedSoundPaths", "");
+                }
+                soundList.updateContent();
+                soundList.deselectAllRows();
+                repaint();
+                break;
+        }
     }
 }
