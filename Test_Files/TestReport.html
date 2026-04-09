@@ -9,10 +9,23 @@
 <li><strong>UserManagementTest::testSaveRecording</strong> &ndash; Verifies that saveRecording() writes a .wav file to disk and the file exists afterward &ndash; <span style='color:green'>PASS</span></li>
 <li><strong>UserManagementTest::testPlaybackState</strong> &ndash; Verifies the play/pause/resume/stop state machine and that play is blocked when no audio is loaded &ndash; <span style='color:green'>PASS</span></li>
 <li><strong>UserManagementTest::testVolumeSliderRange</strong> &ndash; Verifies that volume, pitch, and length sliders clamp values within their defined min/max bounds &ndash; <span style='color:green'>PASS</span></li>
+<li><strong>UserManagementTest::testGuestPermissions</strong> &ndash; Verifies that Guest users cannot record or save, while Owner users have full access &ndash; <span style='color:green'>PASS</span></li>
+<li><strong>UserManagementTest::testGuestCannotDelete</strong> &ndash; Verifies that Guest users cannot delete sounds from the list, while Owner can &ndash; <span style='color:green'>PASS</span></li>
+<li><strong>UserManagementTest::testGuestDownloadRequiresSelection</strong> &ndash; Verifies that download is blocked when no sound is selected, and allowed when one is selected &ndash; <span style='color:green'>PASS</span></li>
+<li><strong>UserManagementTest::testGuestCannotCreateGuest</strong> &ndash; Verifies that Guest users cannot create new guest accounts, only Owner can &ndash; <span style='color:green'>PASS</span></li>
+<li><strong>UserManagementTest::testMaxRecordingDuration</strong> &ndash; Verifies that recording stops automatically after the 10 second maximum duration is reached &ndash; <span style='color:green'>PASS</span></li>
+<li><strong>UserManagementTest::testDeleteSound</strong> &ndash; Verifies that after deleting a sound it no longer appears in the list &ndash; <span style='color:green'>PASS</span></li>
+<li><strong>UserManagementTest::testSoundListEmpty</strong> &ndash; Verifies that clearing the sound list removes all entries and the list reports as empty &ndash; <span style='color:green'>PASS</span></li>
+<li><strong>UserManagementTest::testPitchAffectsPlaybackRate</strong> &ndash; Verifies that the pitch slider value correctly maps to playback rate at neutral, min, and max positions &ndash; <span style='color:green'>PASS</span></li>
+<li><strong>UserManagementTest::testVolumeZero</strong> &ndash; Verifies that setting volume to 0 produces silence and volume at 100 produces full gain &ndash; <span style='color:green'>PASS</span></li>
+<li><strong>UserManagementTest::testLogout</strong> &ndash; Verifies that after logout all owner and guest functions are blocked &ndash; <span style='color:green'>PASS</span></li>
+<li><strong>UserManagementTest::testRecordingOverwrite</strong> &ndash; Verifies that starting a new recording clears the previous one and resets the sample count to zero &ndash; <span style='color:green'>PASS</span></li>
+<li><strong>UserManagementTest::testSoundListSize</strong> &ndash; Verifies that adding and removing sounds correctly changes the size of the sound list &ndash; <span style='color:green'>PASS</span></li>
+<li><strong>UserManagementTest::testSessionPersistence</strong> &ndash; Verifies that a logged in user stays logged in until logout is explicitly called &ndash; <span style='color:green'>PASS</span></li>
 </ul>
 <h2>Summary</h2>
 <ul>
-<li>Total Tests: 7</li>
+<li>Total Tests: 20</li>
 <li>Failures: 0</li>
 <li>Errors: 0</li>
 </ul>

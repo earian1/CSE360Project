@@ -8,7 +8,8 @@ class MainComponent final
     : public juce::Component,
       public juce::MenuBarModel,
       public juce::AudioIODeviceCallback,
-      public juce::ListBoxModel
+      public juce::ListBoxModel,
+      public juce::Timer
 {
 public:
     explicit MainComponent(juce::ApplicationProperties& props);
@@ -16,6 +17,8 @@ public:
 
     void paint(juce::Graphics&) override;
     void resized() override;
+    void timerCallback() override;
+
 
     juce::StringArray getMenuBarNames() override;
     juce::PopupMenu getMenuForIndex(int, const juce::String&) override;
@@ -77,6 +80,8 @@ juce::OwnedArray<SavedSound> inMemorySounds;
 
     bool userExists();
     bool roleChoiceUnlocked() const;
+    bool isValidPassword(const juce::String& password) const;
+
     void setRoleChoiceUnlocked(bool unlocked);
 
     void saveUserInfo(const juce::String& username,
@@ -109,6 +114,8 @@ juce::OwnedArray<SavedSound> inMemorySounds;
     void ensureDefaultAccounts();
     void setupUI();
     void updateVisibility();
+    bool blinkState = false;
+
 
     // ---------------- FIRST USER SETUP / CREATE ACCOUNT ----------------
     juce::Label usernameLabel_setup;

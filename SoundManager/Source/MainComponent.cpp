@@ -196,32 +196,38 @@ void MainComponent::setupUI()
     addAndMakeVisible(loginButton);
 
     submitButton.onClick = [this]()
+{
+    if (usernameField_setup.getText().isEmpty() ||
+        passwordField_setup.getText().isEmpty() ||
+        accountInfoField_setup.getText().isEmpty())
     {
-        if (usernameField_setup.getText().isEmpty() ||
-            passwordField_setup.getText().isEmpty() ||
-            accountInfoField_setup.getText().isEmpty())
-        {
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::WarningIcon,
-                "Error",
-                "Fill all fields"
-            );
-            return;
-        }
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "Error",
+            "Fill all fields");
+        return;
+    }
 
-        juce::String role = roleSelector_setup.getSelectedId() == 1 ? "Owner" : "Guest";
+    // ← ADD THIS
+    if (!isValidPassword(passwordField_setup.getText()))
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "Weak Password",
+            "Password must contain:\n- At least one uppercase letter\n- At least one number\n- At least one special character");
+        return;
+    }
 
-        saveUserInfo(
-            usernameField_setup.getText(),
-            passwordField_setup.getText(),
-            accountInfoField_setup.getText(),
-            role
-        );
+    juce::String role = roleSelector_setup.getSelectedId() == 1 ? "Owner" : "Guest";
+    saveUserInfo(
+        usernameField_setup.getText(),
+        passwordField_setup.getText(),
+        accountInfoField_setup.getText(),
+        role);
 
-        // 👉 SWITCH TO LOGIN
-        currentState = AppState::LOGIN;
-        updateVisibility();
-    };
+    currentState = AppState::LOGIN;
+    updateVisibility();
+};
 
     loginButton.onClick = [this]()
 {
@@ -251,6 +257,15 @@ void MainComponent::setupUI()
 
         if (storedUsername.isEmpty())
         {
+
+            if (!isValidPassword(enteredPassword))
+        {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "Weak Password",
+            "Password must contain:\n- At least one uppercase letter\n- At least one number\n- At least one special character");
+        return;
+        }
             saveUserInfo(enteredUsername, enteredPassword, "User Account", "Owner");
             juce::AlertWindow::showMessageBoxAsync(
                 juce::AlertWindow::InfoIcon,
@@ -275,6 +290,7 @@ void MainComponent::setupUI()
 
             updateVisibility();
             resized();
+            repaint();
 
             juce::AlertWindow::showMessageBoxAsync(
                 juce::AlertWindow::InfoIcon,
@@ -302,6 +318,7 @@ void MainComponent::setupUI()
             currentState = AppState::MAIN_APP;
             updateVisibility();
             resized();
+            repaint();
 
             juce::AlertWindow::showMessageBoxAsync(
                 juce::AlertWindow::InfoIcon,
@@ -317,6 +334,8 @@ void MainComponent::setupUI()
             passwordField_login.clear();
         }
     }
+
+    
 };
 
 forgotButton.setButtonText("Forgot credentials?");
@@ -359,6 +378,16 @@ forgotButton.onClick = [this]()
                             juce::AlertWindow::showMessageBoxAsync(
                                 juce::AlertWindow::WarningIcon,
                                 "Error", "Fields cannot be empty.");
+                            return;
+                        }
+
+                        if (!isValidPassword(newPass))
+                        {
+                            juce::AlertWindow::showMessageBoxAsync(
+                                juce::AlertWindow::WarningIcon,
+                                "Weak Password",
+                                "Password must contain:\n- At least one uppercase letter\n- At least one number\n- At least one special character");
+                            delete dialog;
                             return;
                         }
 
@@ -435,6 +464,7 @@ forgotButton.onClick = [this]()
         float dB = juce::jmap(volValue, 0.0f, 100.0f, -60.0f, 0.0f);
         float gain = juce::Decibels::decibelsToGain(dB);
         bufferSource->setVolume(gain);
+        repaint();
     }
     };
 
@@ -448,6 +478,7 @@ forgotButton.onClick = [this]()
                      : juce::jmap(value, 50.0f, 100.0f, 1.0f, 2.0f);
         bufferSource->setPlaybackRate(rate);
     }
+    repaint();
     };
 
     lengthSlider.onValueChange = [this]()
@@ -460,6 +491,7 @@ forgotButton.onClick = [this]()
 
         bufferSource->setTrimLength(trimSamples);
     }
+    repaint();
     };
 
     addAndMakeVisible(pitchLabel);
@@ -477,33 +509,40 @@ forgotButton.onClick = [this]()
     addAndMakeVisible(createGuestButton);
     addAndMakeVisible(logoutButton);
     addAndMakeVisible(downloadButton);
+    playButton.setColour(juce::TextButton::buttonColourId, juce::Colours::green);
+    stopButton.setColour(juce::TextButton::buttonColourId, juce::Colours::red);
 
     recordButton.onClick = [this]()
-        {
-            if (!isRecording)
-            {
-                isRecording = true;
-                recordingPosition = 0;
+{
+    if (!isRecording)
+    {
+        isRecording = true;
+        recordingPosition = 0;
 
-                int totalSamples = (int)(currentSampleRate * 10.0);
-                recordingBuffer.setSize(2, totalSamples);
-                recordingBuffer.clear();
+        int totalSamples = (int)(currentSampleRate * 10.0);
+        recordingBuffer.setSize(2, totalSamples);
+        recordingBuffer.clear();
 
-                recordingStatusLabel.setText("Recording started...", juce::dontSendNotification);
-            }
-            else
-            {
-                isRecording = false;
-                recordingStatusLabel.setText("Recording stopped", juce::dontSendNotification);
-                repaint();
+        blinkState = true;
+        startTimer(500);
 
-                juce::AlertWindow::showMessageBoxAsync(
-                    juce::AlertWindow::InfoIcon,
-                    "Recording",
-                    "Recording stopped.");
-            }
-        };
+        recordingStatusLabel.setText("Recording started...", juce::dontSendNotification);
+    }
+    else
+    {
+        isRecording = false;
+        blinkState = false;
+        stopTimer();
+        repaint();
 
+        recordingStatusLabel.setText("Recording stopped", juce::dontSendNotification);
+
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::InfoIcon,
+            "Recording",
+            "Recording stopped.");
+    }
+};
 
 
     playButton.onClick = [this]()
@@ -541,13 +580,16 @@ forgotButton.onClick = [this]()
     }
 
     // Fall back to playing the current recording if nothing selected
-    if (recordingPosition > 0)
+    if (recordingPosition > 0){
         playRecordedAudio();
-    else
+        repaint();
+    }
+    else{
         juce::AlertWindow::showMessageBoxAsync(
             juce::AlertWindow::WarningIcon,
             "Playback Error",
             "No recording or sound selected!");
+        }
 };
 
 
@@ -820,6 +862,9 @@ logoutButton.onClick = [this]()
     loginRoleSelector.setSelectedId(1);
     loginRoleSelector.setEnabled(roleChoiceUnlocked());
 
+    displayBuffer = nullptr;      
+    displayNumSamples = 0;        
+
     currentState = AppState::LOGIN;
     updateVisibility();
     resized();
@@ -839,6 +884,7 @@ void MainComponent::createGuestAccount() {
     loginRoleSelector.setEnabled(roleChoiceUnlocked());
     loginRoleSelector.setSelectedId(2); // pre-select Guest
     updateVisibility();
+    repaint();
     resized();
 
     juce::AlertWindow::showMessageBoxAsync(
@@ -846,6 +892,24 @@ void MainComponent::createGuestAccount() {
         "Guest Account Created",
         "Guest account created successfully.\n\nUsername: " + guestUser + "\nPassword: " + guestPass
     );
+}
+
+bool MainComponent::isValidPassword(const juce::String& password) const
+{
+    bool hasUpper = false;
+    bool hasNumber = false;
+    bool hasSpecial = false;
+
+    for (int i = 0; i < password.length(); ++i)
+    {
+        juce::juce_wchar c = password[i];
+
+        if (juce::CharacterFunctions::isUpperCase(c)) hasUpper = true;
+        if (juce::CharacterFunctions::isDigit(c))     hasNumber = true;
+        if (!juce::CharacterFunctions::isLetterOrDigit(c)) hasSpecial = true;
+    }
+
+    return hasUpper && hasNumber && hasSpecial;
 }
 
 void MainComponent::updateVisibility()
@@ -909,12 +973,20 @@ void MainComponent::paint(juce::Graphics& g)
     {
         g.setColour(juce::Colours::darkslategrey);
         g.fillRoundedRectangle(waveformArea.toFloat(), 8.0f);
-
-        g.setColour(juce::Colours::darkslategrey);
         g.fillRoundedRectangle(clusterArea.toFloat(), 8.0f);
 
         drawWaveform(g);
         drawClusterMap(g);
+
+        // Draw blinking recording dot
+        if (isRecording && blinkState)
+        {
+            auto recBounds = recordButton.getBounds();
+            int dotX = recBounds.getX() - 18;
+            int dotY = recBounds.getCentreY() - 6;
+            g.setColour(juce::Colours::red);
+            g.fillEllipse((float)dotX, (float)dotY, 12.0f, 12.0f);
+        }
     }
 }
 
@@ -1220,6 +1292,7 @@ void MainComponent::playRecordedAudio()
 
     transportSource.setSource(bufferSource.get(), 0, nullptr, sampleRate);
     transportSource.start();
+    repaint();
 }
 
 void MainComponent::loadAudioFileForPlayback(const juce::File& file)
@@ -1263,6 +1336,7 @@ void MainComponent::audioDeviceIOCallbackWithContext(const float* const* inputCh
     int numOutputChannels,
     int numSamples,
     const juce::AudioIODeviceCallbackContext&)
+
 {
     if (isRecording && inputChannelData != nullptr)
     {
@@ -1278,10 +1352,10 @@ void MainComponent::audioDeviceIOCallbackWithContext(const float* const* inputCh
         recordingPosition += numSamplesToCopy;
 
         juce::MessageManager::callAsync([this]()
-            {
-                recordingStatusLabel.setText("Recording: " + juce::String(recordingPosition) + " samples",
-                    juce::dontSendNotification);
-            });
+        {   
+    recordingStatusLabel.setText("Recording: " + juce::String(recordingPosition) + " samples",
+        juce::dontSendNotification);
+        });
 
         if (recordingPosition >= recordingBuffer.getNumSamples())
         {
@@ -1511,6 +1585,7 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
 
                 transportSource.setSource(bufferSource.get(), 0, nullptr, sound->sampleRate);
                 transportSource.start();
+                repaint();
             }
 
             repaint();
@@ -1565,7 +1640,11 @@ void MainComponent::listBoxItemClicked(int row, const juce::MouseEvent& e)
     }
 }
 
-
+void MainComponent::timerCallback()
+{
+    blinkState = !blinkState;
+    repaint();
+}
 
 juce::StringArray MainComponent::getMenuBarNames()
 {

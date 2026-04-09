@@ -1,10 +1,11 @@
-#pragma
+#pragma once
 #include <string>
 #include <algorithm>
+#include <vector>
 
 class MockSlider
 {
-  public:
+public:
     MockSlider(double min, double max, double initial)
         : minValue(min), maxValue(max), currentValue(initial) {}
 
@@ -13,28 +14,12 @@ class MockSlider
         currentValue = std::max(minValue, std::min(maxValue, v));
     }
 
-    double getValue() const
-    {
-        return currentValue;
-    }
+    double getValue() const { return currentValue; }
+    double getMinimum() const { return minValue; }
+    double getMaximum() const { return maxValue; }
+    bool isInRange(double v) const { return v >= minValue && v <= maxValue; }
 
-    double getMinimum() const
-    {
-        return minValue;
-    }
-
-    double getMaximum() const
-    {
-        return maxValue;
-    }
-
-    bool isInRange(double v) const
-    {
-        return v >= minValue && v <= maxValue;
-    }
-
-
-  private:
+private:
     double minValue;
     double maxValue;
     double currentValue;
@@ -42,35 +27,79 @@ class MockSlider
 
 class PermissionGuard
 {
-  public:
-    PermissionGuard(const std::string& role)
-        : userRole(role) {}
+public:
+    PermissionGuard(const std::string& role) : userRole(role) {}
 
-    bool canRecord() const
+    bool canRecord()      const { return userRole == "Owner"; }
+    bool canSave()        const { return userRole == "Owner"; }
+    bool canDelete()      const { return userRole == "Owner"; }
+    bool canCreateGuest() const { return userRole == "Owner"; }
+    bool canDownload()    const { return userRole == "Guest" || userRole == "Owner"; }
+    bool canPlay()        const { return userRole == "Owner" || userRole == "Guest"; }
+    bool canStop()        const { return userRole == "Owner" || userRole == "Guest"; }
+
+    std::string getRole() const { return userRole; }
+
+private:
+    std::string userRole;
+};
+
+class MockSoundList
+{
+public:
+    MockSoundList() : selectedRow(-1)
     {
-        return userRole == "Owner";
+        sounds.push_back("TestSound");
     }
 
-    bool canSave() const
+    void selectRow(int row)
     {
-        return userRole == "Owner";
+        if (row >= 0 && row < (int)sounds.size())
+            selectedRow = row;
     }
 
-    bool canPlay() const
+    void deselectAll() { selectedRow = -1; }
+
+    void addSound(const std::string& name)
     {
-        return true;
+        sounds.push_back(name);
     }
 
-    bool canStop() const
+    void deleteSound(int row)
     {
-        return true;
+        if (row >= 0 && row < (int)sounds.size())
+        {
+            sounds.erase(sounds.begin() + row);
+            selectedRow = -1;
+        }
     }
 
-    std::string getRole() const
+    void clearAll()
     {
-        return userRole;
+        sounds.clear();
+        selectedRow = -1;
     }
 
-    private:
-        std::string userRole;
+    bool soundExists(const std::string& name) const
+    {
+        return std::find(sounds.begin(), sounds.end(), name) != sounds.end();
+    }
+
+    bool hasSelection() const
+    {
+        return selectedRow >= 0 && selectedRow < (int)sounds.size();
+    }
+
+    bool isEmpty() const { return sounds.empty(); }
+
+    bool canDownload(const PermissionGuard& user) const
+    {
+        return user.canDownload() && hasSelection();
+    }
+
+    int size() const { return (int)sounds.size(); }
+
+private:
+    std::vector<std::string> sounds;
+    int selectedRow;
 };

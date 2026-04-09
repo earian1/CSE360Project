@@ -1,6 +1,7 @@
 #pragma once
 #include <cppunit/extensions/HelperMacros.h>
 #include <cstdio>  // for std::remove()
+#include <cmath>    // for std::pow()
 
 // Existing mocks (Sprint 1 & 2)
 #include "MainComponentLogin.h"
@@ -26,6 +27,19 @@ class UserManagementTest : public CppUnit::TestFixture
     CPPUNIT_TEST(testSaveRecording);
     CPPUNIT_TEST(testPlaybackState);
     CPPUNIT_TEST(testVolumeSliderRange);
+    CPPUNIT_TEST(testGuestPermissions);
+    CPPUNIT_TEST(testGuestCannotDelete);
+    CPPUNIT_TEST(testGuestDownloadRequiresSelection);
+    CPPUNIT_TEST(testGuestCannotCreateGuest);
+    CPPUNIT_TEST(testMaxRecordingDuration);
+    CPPUNIT_TEST(testDeleteSound);
+    CPPUNIT_TEST(testSoundListEmpty);
+    CPPUNIT_TEST(testPitchAffectsPlaybackRate);
+    CPPUNIT_TEST(testVolumeZero);
+    CPPUNIT_TEST(testLogout);
+    CPPUNIT_TEST(testRecordingOverwrite);
+    CPPUNIT_TEST(testSoundListSize);
+    CPPUNIT_TEST(testSessionPersistence);
 
     CPPUNIT_TEST_SUITE_END();
 
@@ -38,6 +52,24 @@ private:
     PasswordValidator*  passwordValidator = new PasswordValidator();
     SaveManager*        saveManager       = new SaveManager();
     PlaybackManager*    playbackManager   = new PlaybackManager();
+
+    private:
+    // helper to calculate playback rate from pitch slider value
+    double calculatePlaybackRate(double sliderVal)
+    {
+        double minRate = 0.5;
+        double maxRate = 2.0;
+        double normalized = sliderVal / 100.0;
+        return minRate * std::pow(maxRate / minRate, normalized);
+    }
+
+    // helper to calculate gain from volume slider value
+    double calculateGain(double sliderVal)
+    {
+        if (sliderVal <= 0.0) return 0.0;
+        double dB = -60.0 + (sliderVal / 100.0) * 60.0;
+        return std::pow(10.0, dB / 20.0);
+    }
 
 public:
 
@@ -291,4 +323,257 @@ public:
         CPPUNIT_ASSERT(guest.getRole() == "Guest");
         CPPUNIT_ASSERT(owner.getRole() == "Owner");
     }
+
+     void testGuestCannotDelete()
+    {
+        PermissionGuard guest("Guest");
+        PermissionGuard owner("Owner");
+
+        CPPUNIT_ASSERT(!guest.canDelete());
+        CPPUNIT_ASSERT(owner.canDelete());
+    }
+
+    // ----------------------------------------------------------------
+    // testGuestDownloadRequiresSelection
+    // ----------------------------------------------------------------
+    void testGuestDownloadRequiresSelection()
+    {
+        PermissionGuard guest("Guest");
+
+        CPPUNIT_ASSERT(guest.canDownload());
+
+        MockSoundList soundList;
+        CPPUNIT_ASSERT(!soundList.hasSelection());
+        CPPUNIT_ASSERT(!soundList.canDownload(guest));
+
+        soundList.selectRow(0);
+        CPPUNIT_ASSERT(soundList.hasSelection());
+        CPPUNIT_ASSERT(soundList.canDownload(guest));
+    }
+
+    // ----------------------------------------------------------------
+    // testGuestCannotCreateGuest
+    // ----------------------------------------------------------------
+    void testGuestCannotCreateGuest()
+    {
+        PermissionGuard guest("Guest");
+        PermissionGuard owner("Owner");
+
+        CPPUNIT_ASSERT(!guest.canCreateGuest());
+        CPPUNIT_ASSERT(owner.canCreateGuest());
+    }
+
+    // ----------------------------------------------------------------
+// testMaxRecordingDuration
+// Verifies that recording stops automatically after max samples
+// are reached (simulating 10 second limit).
+// ----------------------------------------------------------------
+void testMaxRecordingDuration()
+{
+    recordingManager->startRecording();
+    CPPUNIT_ASSERT(recordingManager->getIsRecording());
+
+    // Simulate reaching max duration
+    recordingManager->simulateMaxDuration();
+
+    // Should have stopped automatically
+    CPPUNIT_ASSERT(!recordingManager->getIsRecording());
+    CPPUNIT_ASSERT(recordingManager->hasReachedMaxDuration());
+}
+
+// ----------------------------------------------------------------
+// testDeleteSound
+// Verifies that after deleting a sound it no longer appears
+// in the list.
+// ----------------------------------------------------------------
+void testDeleteSound()
+{
+    MockSoundList soundList;
+
+    // Should start with 1 sound
+    CPPUNIT_ASSERT(soundList.size() == 1);
+
+    // Add another sound
+    soundList.addSound("NewSound");
+    CPPUNIT_ASSERT(soundList.size() == 2);
+
+    // Delete first sound
+    soundList.deleteSound(0);
+    CPPUNIT_ASSERT(soundList.size() == 1);
+
+    // Deleted sound should not exist
+    CPPUNIT_ASSERT(!soundList.soundExists("TestSound"));
+
+    // Remaining sound should still exist
+    CPPUNIT_ASSERT(soundList.soundExists("NewSound"));
+}
+
+// ----------------------------------------------------------------
+// testSoundListEmpty
+// Verifies that clearing the list removes all entries.
+// ----------------------------------------------------------------
+void testSoundListEmpty()
+{
+    MockSoundList soundList;
+
+    // Add a few sounds
+    soundList.addSound("Sound1");
+    soundList.addSound("Sound2");
+    CPPUNIT_ASSERT(soundList.size() == 3);
+
+    // Clear the list
+    soundList.clearAll();
+    CPPUNIT_ASSERT(soundList.size() == 0);
+    CPPUNIT_ASSERT(soundList.isEmpty());
+}
+
+// ----------------------------------------------------------------
+// testPitchAffectsPlaybackRate
+// Verifies that pitch slider value correctly maps to playback rate.
+// ----------------------------------------------------------------
+void testPitchAffectsPlaybackRate()
+{
+    MockSlider pitchSlider(0.0, 100.0, 50.0);
+
+    // At 50 (neutral) rate should be 1.0
+    double rate = calculatePlaybackRate(pitchSlider.getValue());
+    CPPUNIT_ASSERT_DOUBLES_EQUAL(1.0, rate, 0.01);
+
+    // At 0 (lowest) rate should be 0.5 (one octave down)
+    pitchSlider.setValue(0.0);
+    rate = calculatePlaybackRate(pitchSlider.getValue());
+    CPPUNIT_ASSERT_DOUBLES_EQUAL(0.5, rate, 0.01);
+
+    // At 100 (highest) rate should be 2.0 (one octave up)
+    pitchSlider.setValue(100.0);
+    rate = calculatePlaybackRate(pitchSlider.getValue());
+    CPPUNIT_ASSERT_DOUBLES_EQUAL(2.0, rate, 0.01);
+}
+
+// ----------------------------------------------------------------
+// testVolumeZero
+// Verifies that setting volume to 0 produces silence (gain of 0).
+// ----------------------------------------------------------------
+void testVolumeZero()
+{
+    MockSlider volumeSlider(0.0, 100.0, 80.0);
+
+    // At 0 volume gain should be effectively 0 (silence)
+    volumeSlider.setValue(0.0);
+    double gain = calculateGain(volumeSlider.getValue());
+    CPPUNIT_ASSERT_DOUBLES_EQUAL(0.0, gain, 0.0001);
+
+    // At 100 volume gain should be 1.0 (full)
+    volumeSlider.setValue(100.0);
+    gain = calculateGain(volumeSlider.getValue());
+    CPPUNIT_ASSERT_DOUBLES_EQUAL(1.0, gain, 0.01);
+
+    // At 50 gain should be between 0 and 1
+    volumeSlider.setValue(50.0);
+    gain = calculateGain(volumeSlider.getValue());
+    CPPUNIT_ASSERT(gain > 0.0 && gain < 1.0);
+}
+
+// ----------------------------------------------------------------
+// testLogout
+// Verifies that after logout, owner functions are blocked.
+// ----------------------------------------------------------------
+void testLogout()
+{
+    // Start logged in as owner
+    PermissionGuard owner("Owner");
+    CPPUNIT_ASSERT(owner.canRecord());
+    CPPUNIT_ASSERT(owner.canSave());
+
+    // Simulate logout by switching to no role
+    PermissionGuard loggedOut("None");
+    CPPUNIT_ASSERT(!loggedOut.canRecord());
+    CPPUNIT_ASSERT(!loggedOut.canSave());
+    CPPUNIT_ASSERT(!loggedOut.canPlay());
+    CPPUNIT_ASSERT(!loggedOut.canStop());
+    CPPUNIT_ASSERT(!loggedOut.canDownload());
+    CPPUNIT_ASSERT(!loggedOut.canDelete());
+    CPPUNIT_ASSERT(!loggedOut.canCreateGuest());
+}
+
+// ----------------------------------------------------------------
+// testRecordingOverwrite
+// Verifies that starting a new recording clears the previous one.
+// ----------------------------------------------------------------
+void testRecordingOverwrite()
+{
+    // Start first recording
+    recordingManager->startRecording();
+    CPPUNIT_ASSERT(recordingManager->getIsRecording());
+
+    // Stop first recording
+    recordingManager->stopRecording();
+    CPPUNIT_ASSERT(!recordingManager->getIsRecording());
+
+    // Record some samples
+    recordingManager->addSamples(100);
+    CPPUNIT_ASSERT(recordingManager->getSampleCount() == 100);
+
+    // Start a new recording — should clear previous samples
+    recordingManager->startRecording();
+    CPPUNIT_ASSERT(recordingManager->getSampleCount() == 0);
+
+    recordingManager->stopRecording();
+}
+
+// ----------------------------------------------------------------
+// testSoundListSize
+// Verifies that adding and removing sounds changes list size correctly.
+// ----------------------------------------------------------------
+void testSoundListSize()
+{
+    MockSoundList soundList;
+
+    // Starts with 1 sound
+    CPPUNIT_ASSERT(soundList.size() == 1);
+
+    // Add sounds one by one and check size
+    soundList.addSound("Sound1");
+    CPPUNIT_ASSERT(soundList.size() == 2);
+
+    soundList.addSound("Sound2");
+    CPPUNIT_ASSERT(soundList.size() == 3);
+
+    soundList.addSound("Sound3");
+    CPPUNIT_ASSERT(soundList.size() == 4);
+
+    // Delete one and check size decreases
+    soundList.deleteSound(0);
+    CPPUNIT_ASSERT(soundList.size() == 3);
+
+    // Clear all and check size is 0
+    soundList.clearAll();
+    CPPUNIT_ASSERT(soundList.size() == 0);
+    CPPUNIT_ASSERT(soundList.isEmpty());
+}
+
+// ----------------------------------------------------------------
+// testSessionPersistence
+// Verifies that a logged in user stays logged in until
+// logout is explicitly called.
+// ----------------------------------------------------------------
+void testSessionPersistence()
+{
+    // Log in
+    CPPUNIT_ASSERT(mainComp->checkLogin("Johnny", "Jgarciga1!"));
+    mainComp->setLoggedIn(true);
+
+    // Session should be active
+    CPPUNIT_ASSERT(mainComp->isLoggedIn());
+
+    // Simulate some actions — session should persist
+    mainComp->isLoggedIn();
+    mainComp->isLoggedIn();
+    mainComp->isLoggedIn();
+    CPPUNIT_ASSERT(mainComp->isLoggedIn());
+
+    // Logout — session should end
+    mainComp->setLoggedIn(false);
+    CPPUNIT_ASSERT(!mainComp->isLoggedIn());
+}
 };

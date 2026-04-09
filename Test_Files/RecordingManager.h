@@ -1,25 +1,38 @@
 #pragma once
+#include <string>
 
 class RecordingManager
 {
 public:
     void startRecording()
     {
-        // Placeholder for starting recording logic
         isRecording = true;
+        reachedMax = false;
+        sampleCount = 0; // ← clears previous recording
     }
 
     void stopRecording()
     {
-        // Placeholder for stopping recording logic
         isRecording = false;
     }
 
-    bool getIsRecording() const
+    void simulateMaxDuration()
     {
-        return isRecording;
+        isRecording = false;
+        reachedMax = true;
     }
 
+    void addSamples(int count)
+    {
+        sampleCount += count;
+    }
+
+    int getSampleCount() const { return sampleCount; }
+    bool hasReachedMaxDuration() const { return reachedMax; }
+    bool getIsRecording() const { return isRecording; }
+
 private:
-    bool isRecording { false };
+    bool isRecording = false;
+    bool reachedMax = false;
+    int sampleCount = 0;
 };
