@@ -86,17 +86,23 @@ void MainComponent::applySlidersToBufferSource()
     bufferSource->setTrimLength(trimSamples);
 }
 
+bool MainComponent::userExists()
+{
+    // Example: check if your user data file exists
+    juce::File userFile = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+                            .getChildFile("user_data.txt");
+    return userFile.exists();
+}
+
 MainComponent::MainComponent(juce::ApplicationProperties& props)
 {
     userStorage = props.getUserSettings();
     setSize(1000, 700);
 
-    
-
-    ensureDefaultAccounts();
     setupUI();
 
     currentState = AppState::LOGIN;
+
     refreshSoundListFromStorage();
     updateVisibility();
 }
@@ -113,20 +119,6 @@ void MainComponent::ensureDefaultAccounts()
 {
     if (userStorage == nullptr)
         return;
-
-    if (userStorage->getValue("username", "").isEmpty())
-    {
-        userStorage->setValue("username", "guest");
-        userStorage->setValue("password", "guest");
-        userStorage->setValue("accountInfo", "Default Owner Account");
-        userStorage->setValue("role", "Owner");
-    }
-
-    if (userStorage->getValue("guestUsername", "").isEmpty())
-    {
-        userStorage->setValue("guestUsername", "guest");
-        userStorage->setValue("guestPassword", "guest");
-    }
 
     if (!userStorage->containsKey("roleChoiceUnlocked"))
         userStorage->setValue("roleChoiceUnlocked", false);
@@ -153,7 +145,33 @@ void MainComponent::setRoleChoiceUnlocked(bool unlocked)
 
 void MainComponent::setupUI()
 {
+
+    
     // Login UI
+    usernameLabel_setup.setText("Username:", juce::dontSendNotification);
+    addAndMakeVisible(usernameLabel_setup);
+    addAndMakeVisible(usernameField_setup);
+
+    passwordLabel_setup.setText("Password:", juce::dontSendNotification);
+    passwordField_setup.setPasswordCharacter('*');
+    addAndMakeVisible(passwordLabel_setup);
+    addAndMakeVisible(passwordField_setup);
+
+    accountInfoLabel_setup.setText("Account Info:", juce::dontSendNotification);
+    addAndMakeVisible(accountInfoLabel_setup);
+    addAndMakeVisible(accountInfoField_setup);
+
+    roleLabel_setup.setText("Role:", juce::dontSendNotification);
+    addAndMakeVisible(roleLabel_setup);
+
+    roleSelector_setup.addItem("Owner", 1);
+    roleSelector_setup.setSelectedId(1);
+    addAndMakeVisible(roleSelector_setup);
+
+    submitButton.setButtonText("Submit"); // must be BEFORE addAndMakeVisible
+    addAndMakeVisible(submitButton);
+
+
     usernameLabel_login.setText("Username:", juce::dontSendNotification);
     passwordLabel_login.setText("Password:", juce::dontSendNotification);
     loginRoleLabel.setText("Log In As:", juce::dontSendNotification);
@@ -177,90 +195,186 @@ void MainComponent::setupUI()
     addAndMakeVisible(loginRoleSelector);
     addAndMakeVisible(loginButton);
 
-    loginButton.onClick = [this]()
+    submitButton.onClick = [this]()
+    {
+        if (usernameField_setup.getText().isEmpty() ||
+            passwordField_setup.getText().isEmpty() ||
+            accountInfoField_setup.getText().isEmpty())
         {
-            juce::String enteredUsername = usernameField_login.getText().trim();
-            juce::String enteredPassword = passwordField_login.getText().trim();
-            int selectedRole = loginRoleSelector.getSelectedId();
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::WarningIcon,
+                "Error",
+                "Fill all fields"
+            );
+            return;
+        }
 
-            if (enteredUsername.isEmpty() || enteredPassword.isEmpty())
-            {
-                juce::AlertWindow::showMessageBoxAsync(
-                    juce::AlertWindow::WarningIcon,
-                    "Login Error",
-                    "Please enter both username and password.");
-                return;
-            }
+        juce::String role = roleSelector_setup.getSelectedId() == 1 ? "Owner" : "Guest";
+
+        saveUserInfo(
+            usernameField_setup.getText(),
+            passwordField_setup.getText(),
+            accountInfoField_setup.getText(),
+            role
+        );
+
+        // 👉 SWITCH TO LOGIN
+        currentState = AppState::LOGIN;
+        updateVisibility();
+    };
+
+    loginButton.onClick = [this]()
+{
+    
+    juce::String enteredUsername = usernameField_login.getText().trim();
+    juce::String enteredPassword = passwordField_login.getText().trim();
+    int selectedRole = loginRoleSelector.getSelectedId();
+
+    if (enteredUsername.isEmpty() || enteredPassword.isEmpty())
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "Login Error",
+            "Please enter both username and password.");
+        return;
+    }
+
+
+
+    if (selectedRole == 1)
+    {
+        addAndMakeVisible(menuBar);
+        menuBar.setModel(this);
+
+        juce::String storedUsername, storedPassword, storedAccountInfo, storedRole;
+        loadUserInfo(storedUsername, storedPassword, storedAccountInfo, storedRole);
+
+        if (storedUsername.isEmpty())
+        {
+            saveUserInfo(enteredUsername, enteredPassword, "User Account", "Owner");
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::InfoIcon,
+                "Account Created",
+                "Your account has been created. Please log in again.");
+            usernameField_login.clear();
+            passwordField_login.clear();
+            return;
+        }
+        else if (enteredUsername == storedUsername &&
+                 enteredPassword == storedPassword &&
+                 storedRole == "Owner")
+        {
+            loggedInAsGuest = false;
+            currentState = AppState::MAIN_APP;
 
             if (!roleChoiceUnlocked())
-                selectedRole = 1;
-
-            if (selectedRole == 1)
             {
-                addAndMakeVisible(menuBar);
-                menuBar.setModel(this);
+                setRoleChoiceUnlocked(true);
+                loginRoleSelector.setEnabled(true);
+            }
 
-                juce::String storedUsername, storedPassword, storedAccountInfo, storedRole;
-                loadUserInfo(storedUsername, storedPassword, storedAccountInfo, storedRole);
+            updateVisibility();
+            resized();
 
-                if (enteredUsername == storedUsername &&
-                    enteredPassword == storedPassword &&
-                    storedRole == "Owner")
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::InfoIcon,
+                "Login Successful",
+                "Welcome, Owner!");
+        }
+        else
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::WarningIcon,
+                "Login Failed",
+                "Invalid owner username or password.");
+            passwordField_login.clear();
+        }
+    }
+    else if (selectedRole == 2)  // ← ADD THIS ENTIRE BLOCK
+    {
+        juce::String guestUsername, guestPassword;
+        loadGuestInfo(guestUsername, guestPassword);
+
+        if (enteredUsername == guestUsername &&
+            enteredPassword == guestPassword)
+        {
+            loggedInAsGuest = true;
+            currentState = AppState::MAIN_APP;
+            updateVisibility();
+            resized();
+
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::InfoIcon,
+                "Login Successful",
+                "Welcome, Guest!");
+        }
+        else
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::WarningIcon,
+                "Login Failed",
+                "Invalid guest username or password.");
+            passwordField_login.clear();
+        }
+    }
+};
+
+forgotButton.setButtonText("Forgot credentials?");
+addAndMakeVisible(forgotButton);
+
+forgotButton.onClick = [this]()
+{
+    juce::AlertWindow::showOkCancelBox(
+        juce::AlertWindow::QuestionIcon,
+        "Forgot Credentials",
+        "What would you like to do?",
+        "Reset Account",   // OK = reset
+        "Change Credentials", // Cancel = change
+        nullptr,
+        juce::ModalCallbackFunction::create([this](int result)
+        {
+            if (result == 1) // Reset Account
+            {
+                currentState = AppState::FIRST_USER_SETUP;
+                updateVisibility();
+                resized();
+            }
+            else // Change Credentials
+            {
+                auto* dialog = new juce::AlertWindow("Change Credentials", "", juce::AlertWindow::NoIcon);
+                dialog->addTextEditor("username", "", "New Username:");
+                dialog->addTextEditor("password", "", "New Password:");
+                dialog->addButton("Save", 1);
+                dialog->addButton("Cancel", 0);
+
+                dialog->enterModalState(true, juce::ModalCallbackFunction::create([this, dialog](int r)
                 {
-                    loggedInAsGuest = false;
-                    currentState = AppState::MAIN_APP;
-
-                    if (!roleChoiceUnlocked())
+                    if (r == 1)
                     {
-                        setRoleChoiceUnlocked(true);
-                        loginRoleSelector.setEnabled(true);
+                        juce::String newUser = dialog->getTextEditorContents("username").trim();
+                        juce::String newPass = dialog->getTextEditorContents("password").trim();
+
+                        if (newUser.isEmpty() || newPass.isEmpty())
+                        {
+                            juce::AlertWindow::showMessageBoxAsync(
+                                juce::AlertWindow::WarningIcon,
+                                "Error", "Fields cannot be empty.");
+                            return;
+                        }
+
+                        juce::String dummy, oldPass, info, role;
+                        loadUserInfo(dummy, oldPass, info, role);
+                        saveUserInfo(newUser, newPass, info, role);
+
+                        juce::AlertWindow::showMessageBoxAsync(
+                            juce::AlertWindow::InfoIcon,
+                            "Success", "Credentials updated! Please log in.");
                     }
-
-                    updateVisibility();
-                    resized();
-
-                    juce::AlertWindow::showMessageBoxAsync(
-                        juce::AlertWindow::InfoIcon,
-                        "Login Successful",
-                        "Welcome, Owner!");
-                }
-                else
-                {
-                    juce::AlertWindow::showMessageBoxAsync(
-                        juce::AlertWindow::WarningIcon,
-                        "Login Failed",
-                        "Invalid owner username or password.");
-                    passwordField_login.clear();
-                }
+                    delete dialog;
+                }), true);
             }
-            else if (selectedRole == 2)
-            {
-                juce::String guestUsername, guestPassword;
-                loadGuestInfo(guestUsername, guestPassword);
-
-                if (enteredUsername == guestUsername &&
-                    enteredPassword == guestPassword)
-                {
-                    loggedInAsGuest = true;
-                    currentState = AppState::MAIN_APP;
-                    updateVisibility();
-                    resized();
-
-                    juce::AlertWindow::showMessageBoxAsync(
-                        juce::AlertWindow::InfoIcon,
-                        "Login Successful",
-                        "Welcome, Guest!");
-                }
-                else
-                {
-                    juce::AlertWindow::showMessageBoxAsync(
-                        juce::AlertWindow::WarningIcon,
-                        "Login Failed",
-                        "Invalid guest username or password.");
-                    passwordField_login.clear();
-                }
-            }
-        };
+        }));
+};
 
     // Main app labels
     mainAppPlaceholder.setJustificationType(juce::Justification::centredLeft);
@@ -381,6 +495,7 @@ void MainComponent::setupUI()
             {
                 isRecording = false;
                 recordingStatusLabel.setText("Recording stopped", juce::dontSendNotification);
+                repaint();
 
                 juce::AlertWindow::showMessageBoxAsync(
                     juce::AlertWindow::InfoIcon,
@@ -392,41 +507,49 @@ void MainComponent::setupUI()
 
 
     playButton.onClick = [this]()
+{
+    transportSource.stop();
+    transportSource.setSource(nullptr);
+
+    if (selectedSoundRow >= 0 && selectedSoundRow < inMemorySounds.size())
     {
-        transportSource.stop();
-        transportSource.setSource(nullptr);
+        auto* sound = inMemorySounds[selectedSoundRow];
 
-        if (selectedSoundRow >= 0 && selectedSoundRow < savedSoundPaths.size())
-        {
-            // Play a saved file
-            juce::File selectedFile(savedSoundPaths[selectedSoundRow]);
-            if (selectedFile.existsAsFile())
-            {
-                loadAudioFileForPlayback(selectedFile);
+        bufferSource.reset();
+        playbackBuffer.makeCopyOf(sound->buffer);
+        playbackBuffer.setSize(playbackBuffer.getNumChannels(), sound->numSamples, true, false, false);
 
-                // Apply volume (logarithmic)
-                float volValue = volumeSlider.getValue();
-                float dB = juce::jmap(volValue, 0.0f, 100.0f, -60.0f, 0.0f);
-                transportSource.setGain(juce::Decibels::decibelsToGain(dB));
+        displayBuffer = &playbackBuffer;      
+        displayNumSamples = sound->numSamples;
 
-                transportSource.start();
-                return;
-            }
-        }
+        bufferSource = std::make_unique<BufferAudioSource>(playbackBuffer, sound->numSamples);
 
-        // Play recorded audio if no file selected
-        if (recordingPosition > 0)
-        {
-            playRecordedAudio();
-        }
-        else
-        {
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::WarningIcon,
-                "Playback Error",
-                "No recording or file selected!");
-        }
-    };
+        float sliderVal = pitchSlider.getValue();
+        float rate = 0.5f * std::pow(4.0f, sliderVal / 100.0f);
+        bufferSource->setPlaybackRate(rate);
+
+        int trimSamples = static_cast<int>((lengthSlider.getValue() / 100.0) * sound->numSamples);
+        bufferSource->setTrimLength(trimSamples);
+
+        float dB = juce::jmap((float)volumeSlider.getValue(), 0.0f, 100.0f, -60.0f, 0.0f);
+        bufferSource->setVolume(juce::Decibels::decibelsToGain(dB));
+
+        transportSource.setSource(bufferSource.get(), 0, nullptr, sound->sampleRate);
+        transportSource.start();
+        repaint();
+        return;
+    }
+
+    // Fall back to playing the current recording if nothing selected
+    if (recordingPosition > 0)
+        playRecordedAudio();
+    else
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "Playback Error",
+            "No recording or sound selected!");
+};
+
 
     stopButton.onClick = [this]()
         {
@@ -434,14 +557,13 @@ void MainComponent::setupUI()
         };
 
     saveButton.onClick = [this]()
-        {
-              if (isRecording)
+{
+    if (isRecording)
     {
         juce::AlertWindow::showMessageBoxAsync(
             juce::AlertWindow::WarningIcon,
             "Save Error",
-            "Please stop recording before saving."
-        );
+            "Please stop recording before saving.");
         return;
     }
 
@@ -450,114 +572,199 @@ void MainComponent::setupUI()
         juce::AlertWindow::showMessageBoxAsync(
             juce::AlertWindow::WarningIcon,
             "Save Error",
-            "No recording available to save!"
-        );
+            "No recording available to save!");
         return;
     }
 
-    // Keep FileChooser alive
-    fileChooser = std::make_unique<juce::FileChooser>("Save Recording", juce::File{}, "*.wav");
+    auto* nameDialog = new juce::AlertWindow("Save Sound", "Enter a name for this sound:", juce::AlertWindow::NoIcon);
+    nameDialog->addTextEditor("soundName", "", "Sound Name:");
+    nameDialog->addButton("Save", 1);
+    nameDialog->addButton("Cancel", 0);
 
-    fileChooser->launchAsync(
-        juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
-        [this](const juce::FileChooser& chooser)
+    nameDialog->enterModalState(true, juce::ModalCallbackFunction::create([this, nameDialog](int result)
+    {
+        if (result == 1)
         {
-            auto file = chooser.getResult();
-            if (file == juce::File{}) return; // cancelled
+            juce::String soundName = nameDialog->getTextEditorContents("soundName").trim();
+            if (soundName.isEmpty())
+                soundName = "Untitled";
 
-            auto outputStream = file.createOutputStream();
+            // Save to a hidden app folder
+            juce::File saveFolder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                                        .getChildFile("SoundEffectsApp")
+                                        .getChildFile("Sounds");
+            saveFolder.createDirectory();
+
+            juce::File outputFile = saveFolder.getChildFile(soundName + ".wav");
+
+            // Avoid overwriting
+            int counter = 1;
+            while (outputFile.existsAsFile())
+                outputFile = saveFolder.getChildFile(soundName + "_" + juce::String(counter++) + ".wav");
+
+            // Write WAV to disk
+            juce::WavAudioFormat wavFormat;
+            std::unique_ptr<juce::FileOutputStream> outputStream(outputFile.createOutputStream());
+
             if (!outputStream)
             {
                 juce::AlertWindow::showMessageBoxAsync(
-                    juce::AlertWindow::WarningIcon,
-                    "Save Error",
-                    "Failed to create file stream."
-                );
+                    juce::AlertWindow::WarningIcon, "Save Error", "Could not create file.");
+                delete nameDialog;
                 return;
             }
 
-            juce::WavAudioFormat wavFormat;
             std::unique_ptr<juce::AudioFormatWriter> writer(
                 wavFormat.createWriterFor(outputStream.release(),
-                                          44100,
+                                          currentSampleRate,
                                           recordingBuffer.getNumChannels(),
-                                          16,
-                                          {},
-                                          0));
+                                          16, {}, 0));
 
             if (!writer)
             {
                 juce::AlertWindow::showMessageBoxAsync(
-                    juce::AlertWindow::WarningIcon,
-                    "Save Error",
-                    "Failed to create WAV writer."
-                );
+                    juce::AlertWindow::WarningIcon, "Save Error", "Could not create WAV writer.");
+                delete nameDialog;
                 return;
             }
 
             writer->writeFromAudioSampleBuffer(recordingBuffer, 0, recordingPosition);
 
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::InfoIcon,
-                "Save Successful",
-                "Recording saved to: " + file.getFullPathName()
-            );
-        });
-        };
+            // Also store in memory for this session
+            auto* sound = new SavedSound();
+            sound->name = soundName;
+            sound->buffer.makeCopyOf(recordingBuffer);
+            sound->numSamples = recordingPosition;
+            sound->sampleRate = currentSampleRate;
+            inMemorySounds.add(sound);
 
-    createGuestButton.onClick = [this]()
-        {
-            juce::String guestUser = "guest";
-            juce::String guestPass = "guest";
-
-            saveGuestInfo(guestUser, guestPass);
+            // Add to list and persist
+            addSavedSound(outputFile.getFileNameWithoutExtension(), outputFile.getFullPathName());
+            soundList.updateContent();
+            repaint();
 
             juce::AlertWindow::showMessageBoxAsync(
                 juce::AlertWindow::InfoIcon,
-                "Guest Account Created",
-                "Guest account created successfully.\n\nUsername: " + guestUser +
-                "\nPassword: " + guestPass);
-        };
+                "Saved!",
+                "Sound \"" + soundName + "\" saved!");
+        }
 
-    logoutButton.onClick = [this]()
-        {
-            transportSource.stop();
-            usernameField_login.clear();
-            passwordField_login.clear();
-            currentState = AppState::LOGIN;
-            loginRoleSelector.setEnabled(roleChoiceUnlocked());
-            loginRoleSelector.setSelectedId(1);
-            updateVisibility();
-            resized();
-        };
+        delete nameDialog;
+    }), true);
+};
+
+
 
     downloadButton.onClick = [this]()
-        {
-            if (selectedSoundRow < 0 || selectedSoundRow >= savedSoundPaths.size())
-            {
-                juce::AlertWindow::showMessageBoxAsync(
-                    juce::AlertWindow::WarningIcon,
-                    "Download Error",
-                    "Please select a saved sound first.");
-                return;
-            }
+{
+    if (selectedSoundRow < 0 || selectedSoundRow >= inMemorySounds.size())
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "Download Error",
+            "Please select a sound from the list first.");
+        return;
+    }
 
-            juce::NativeMessageBox::showOkCancelBox(
-                juce::MessageBoxIconType::QuestionIcon,
-                "Terms of Use",
-                "Download this sound for $2.99?\nBy clicking OK, you accept the terms of use.",
-                this,
-                juce::ModalCallbackFunction::create([this](int result)
-                    {
-                        if (result != 0)
-                        {
-                            juce::AlertWindow::showMessageBoxAsync(
-                                juce::AlertWindow::InfoIcon,
-                                "Download Approved",
-                                "Sound download approved.");
-                        }
-                    }));
-        };
+    juce::String selectedName = savedSoundNames[selectedSoundRow];
+
+    // Step 1: Show price and terms
+    juce::AlertWindow::showOkCancelBox(
+        juce::AlertWindow::QuestionIcon,
+        "Terms of Use",
+        "Download \"" + selectedName + "\" for $2.99?\n\n"
+        "By clicking OK you agree to the terms of use:\n"
+        "- This sound is for personal use only.\n"
+        "- Redistribution is not permitted.\n"
+        "- No refunds after download.",
+        "OK - I Agree",
+        "Cancel",
+        nullptr,
+        juce::ModalCallbackFunction::create([this, selectedName](int result)
+        {
+            if (result != 1)
+                return;
+
+            // Step 2: Let user choose where to save it on their computer
+            fileChooser = std::make_unique<juce::FileChooser>(
+                "Save Sound To Your Computer",
+                juce::File::getSpecialLocation(juce::File::userDesktopDirectory)
+                    .getChildFile(selectedName + ".wav"),
+                "*.wav");
+
+            fileChooser->launchAsync(
+                juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
+                [this](const juce::FileChooser& chooser)
+{
+    juce::File destFile = chooser.getResult();
+    if (destFile == juce::File{})
+        return;
+
+    auto* sound = inMemorySounds[selectedSoundRow];
+
+    // Apply pitch by resampling the buffer
+    float sliderVal = pitchSlider.getValue();
+    float rate = 0.5f * std::pow(4.0f, sliderVal / 100.0f);
+
+    int newNumSamples = (int)(sound->numSamples / rate);
+    juce::AudioBuffer<float> pitchedBuffer(sound->buffer.getNumChannels(), newNumSamples);
+
+    for (int ch = 0; ch < sound->buffer.getNumChannels(); ++ch)
+    {
+        for (int i = 0; i < newNumSamples; ++i)
+        {
+            float srcPos = i * rate;
+            int srcIndex = (int)srcPos;
+            float frac = srcPos - srcIndex;
+
+            int nextIndex = juce::jmin(srcIndex + 1, sound->numSamples - 1);
+            srcIndex = juce::jmin(srcIndex, sound->numSamples - 1);
+
+            // Linear interpolation between samples
+            float sample = sound->buffer.getSample(ch, srcIndex) * (1.0f - frac)
+                         + sound->buffer.getSample(ch, nextIndex) * frac;
+
+            pitchedBuffer.setSample(ch, i, sample);
+        }
+    }
+
+    juce::WavAudioFormat wavFormat;
+    std::unique_ptr<juce::FileOutputStream> outputStream(destFile.createOutputStream());
+
+    if (!outputStream)
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "Download Error",
+            "Could not write to the selected location.");
+        return;
+    }
+
+    std::unique_ptr<juce::AudioFormatWriter> writer(
+        wavFormat.createWriterFor(outputStream.release(),
+                                  sound->sampleRate,
+                                  pitchedBuffer.getNumChannels(),
+                                  16, {}, 0));
+
+    if (!writer)
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "Download Error",
+            "Could not create WAV writer.");
+        return;
+    }
+
+    writer->writeFromAudioSampleBuffer(pitchedBuffer, 0, newNumSamples);
+
+    juce::AlertWindow::showMessageBoxAsync(
+        juce::AlertWindow::InfoIcon,
+        "Download Complete",
+        "\"" + savedSoundNames[selectedSoundRow] + "\" has been downloaded to:\n" +
+        destFile.getFullPathName());
+});
+        }));
+};
 
     // Audio
     formatManager.registerBasicFormats();
@@ -599,15 +806,67 @@ if (!inputDevices.isEmpty())
 
     deviceManager.setAudioDeviceSetup(setup, true);
 }
+logoutButton.setButtonText("Logout");
+
+logoutButton.onClick = [this]()
+{
+    transportSource.stop();
+    transportSource.setSource(nullptr);
+    bufferSource.reset();
+
+    loggedInAsGuest = false;
+    usernameField_login.clear();
+    passwordField_login.clear();
+    loginRoleSelector.setSelectedId(1);
+    loginRoleSelector.setEnabled(roleChoiceUnlocked());
+
+    currentState = AppState::LOGIN;
+    updateVisibility();
+    resized();
+};
+
+}
+
+void MainComponent::createGuestAccount() {
+    juce::String guestUser = "guest" + juce::String(random.nextInt(1000));
+    juce::String guestPass = "guest";
+    saveGuestInfo(guestUser, guestPass);
+
+    // Transition back to login screen
+    currentState = AppState::LOGIN;
+    usernameField_login.clear();
+    passwordField_login.clear();
+    loginRoleSelector.setEnabled(roleChoiceUnlocked());
+    loginRoleSelector.setSelectedId(2); // pre-select Guest
+    updateVisibility();
+    resized();
+
+    juce::AlertWindow::showMessageBoxAsync(
+        juce::AlertWindow::InfoIcon,
+        "Guest Account Created",
+        "Guest account created successfully.\n\nUsername: " + guestUser + "\nPassword: " + guestPass
+    );
 }
 
 void MainComponent::updateVisibility()
 {
+    bool setupVisible = (currentState == AppState::FIRST_USER_SETUP);
     bool loginVisible = (currentState == AppState::LOGIN);
-    bool mainVisible = (currentState == AppState::MAIN_APP);
+    bool mainVisible  = (currentState == AppState::MAIN_APP);
 
     bool isOwner = mainVisible && isOwnerLoggedIn();
     bool isGuest = mainVisible && isGuestLoggedIn();
+
+    // SHOW CREATE ACCOUNT
+    usernameLabel_setup.setVisible(setupVisible);
+    usernameField_setup.setVisible(setupVisible);
+    passwordLabel_setup.setVisible(setupVisible);
+    passwordField_setup.setVisible(setupVisible);
+    accountInfoLabel_setup.setVisible(setupVisible);
+    accountInfoField_setup.setVisible(setupVisible);
+    roleLabel_setup.setVisible(setupVisible);
+    roleSelector_setup.setVisible(setupVisible);
+    submitButton.setVisible(setupVisible);
 
     usernameLabel_login.setVisible(loginVisible);
     usernameField_login.setVisible(loginVisible);
@@ -616,6 +875,8 @@ void MainComponent::updateVisibility()
     loginRoleLabel.setVisible(loginVisible);
     loginRoleSelector.setVisible(loginVisible);
     loginButton.setVisible(loginVisible);
+    forgotButton.setVisible(loginVisible);
+
 
     mainAppPlaceholder.setVisible(mainVisible);
     soundsListLabel.setVisible(mainVisible);
@@ -626,7 +887,7 @@ void MainComponent::updateVisibility()
 
     recordButton.setVisible(isOwner);
     saveButton.setVisible(isOwner);
-    createGuestButton.setVisible(true);
+    createGuestButton.setVisible(isOwner);
 
     playButton.setVisible(isOwner || isGuest);
     stopButton.setVisible(isOwner || isGuest);
@@ -669,6 +930,23 @@ void MainComponent::resized()
     const int buttonHeight = 34;
     const int spacing = 10;
 
+    if (currentState == AppState::FIRST_USER_SETUP)
+    {
+    usernameLabel_setup.setBounds(50, 50, 200, 25);
+    usernameField_setup.setBounds(50, 80, 300, 30);
+
+    passwordLabel_setup.setBounds(50, 120, 200, 25);
+    passwordField_setup.setBounds(50, 150, 300, 30);
+
+    accountInfoLabel_setup.setBounds(50, 190, 200, 25);
+    accountInfoField_setup.setBounds(50, 220, 300, 30);
+
+    roleLabel_setup.setBounds(50, 260, 200, 25);
+    roleSelector_setup.setBounds(50, 290, 300, 30);
+
+    submitButton.setBounds(50, 340, 150, 40);
+    }
+
     if (currentState == AppState::LOGIN)
     {
         auto form = area.removeFromTop(300);
@@ -690,29 +968,33 @@ void MainComponent::resized()
         form.removeFromTop(fieldHeight + spacing + 8);
 
         loginButton.setBounds(centreX + 110, form.getY(), 140, buttonHeight);
+        forgotButton.setBounds(centreX, loginButton.getBottom() + 8, 360, buttonHeight);
+
     }
     else if (currentState == AppState::MAIN_APP)
+{
+    mainAppPlaceholder.setBounds(area.removeFromTop(36));
+
+    auto topSection = area.removeFromTop(250);
+    auto leftTop = topSection.removeFromLeft(240);
+    topSection.removeFromLeft(20);
+    auto rightTop = topSection;
+
+    soundsListLabel.setBounds(leftTop.removeFromTop(24));
+    soundList.setBounds(leftTop);
+
+    auto waveformHeader = rightTop.removeFromTop(24);
+    waveformLabel.setBounds(waveformHeader.removeFromLeft(200));
+    recordingStatusLabel.setBounds(waveformHeader.removeFromRight(220));
+    waveformArea = rightTop.reduced(0, 4);
+
+    area.removeFromTop(12);
+
+    auto controlsSection = area.removeFromTop(170);
+    auto buttonsArea = controlsSection.removeFromLeft(220); // ← declared here
+
+    if (isOwnerLoggedIn())
     {
-        mainAppPlaceholder.setBounds(area.removeFromTop(36));
-
-        auto topSection = area.removeFromTop(250);
-        auto leftTop = topSection.removeFromLeft(240);
-        topSection.removeFromLeft(20);
-        auto rightTop = topSection;
-
-        soundsListLabel.setBounds(leftTop.removeFromTop(24));
-        soundList.setBounds(leftTop);
-
-        auto waveformHeader = rightTop.removeFromTop(24);
-        waveformLabel.setBounds(waveformHeader.removeFromLeft(200));
-        recordingStatusLabel.setBounds(waveformHeader.removeFromRight(220));
-        waveformArea = rightTop.reduced(0, 4);
-
-        area.removeFromTop(12);
-
-        auto controlsSection = area.removeFromTop(170);
-
-        auto buttonsArea = controlsSection.removeFromLeft(220);
         recordButton.setBounds(buttonsArea.removeFromTop(buttonHeight));
         buttonsArea.removeFromTop(8);
         playButton.setBounds(buttonsArea.removeFromTop(buttonHeight));
@@ -723,29 +1005,38 @@ void MainComponent::resized()
         buttonsArea.removeFromTop(8);
         createGuestButton.setBounds(buttonsArea.removeFromTop(buttonHeight));
         buttonsArea.removeFromTop(8);
+        logoutButton.setBounds(buttonsArea.removeFromTop(buttonHeight));
+    }
+    else if (isGuestLoggedIn())
+    {
+        playButton.setBounds(buttonsArea.removeFromTop(buttonHeight));
+        buttonsArea.removeFromTop(8);
+        stopButton.setBounds(buttonsArea.removeFromTop(buttonHeight));
+        buttonsArea.removeFromTop(8);
         downloadButton.setBounds(buttonsArea.removeFromTop(buttonHeight));
         buttonsArea.removeFromTop(8);
         logoutButton.setBounds(buttonsArea.removeFromTop(buttonHeight));
-
-        controlsSection.removeFromLeft(20);
-
-        auto slidersArea = controlsSection;
-        pitchLabel.setBounds(slidersArea.removeFromTop(22));
-        pitchSlider.setBounds(slidersArea.removeFromTop(32));
-        slidersArea.removeFromTop(8);
-
-        lengthLabel.setBounds(slidersArea.removeFromTop(22));
-        lengthSlider.setBounds(slidersArea.removeFromTop(32));
-        slidersArea.removeFromTop(8);
-
-        volumeLabel.setBounds(slidersArea.removeFromTop(22));
-        volumeSlider.setBounds(slidersArea.removeFromTop(32));
-
-        area.removeFromTop(12);
-
-        clusterMapLabel.setBounds(area.removeFromTop(24));
-        clusterArea = area;
     }
+
+    controlsSection.removeFromLeft(20);
+
+    auto slidersArea = controlsSection;
+    pitchLabel.setBounds(slidersArea.removeFromTop(22));
+    pitchSlider.setBounds(slidersArea.removeFromTop(32));
+    slidersArea.removeFromTop(8);
+
+    lengthLabel.setBounds(slidersArea.removeFromTop(22));
+    lengthSlider.setBounds(slidersArea.removeFromTop(32));
+    slidersArea.removeFromTop(8);
+
+    volumeLabel.setBounds(slidersArea.removeFromTop(22));
+    volumeSlider.setBounds(slidersArea.removeFromTop(32));
+
+    area.removeFromTop(12);
+
+    clusterMapLabel.setBounds(area.removeFromTop(24));
+    clusterArea = area;
+}
 }
 
 void MainComponent::saveUserInfo(const juce::String& username,
@@ -783,7 +1074,7 @@ void MainComponent::loadUserInfo(juce::String& username,
     role = userStorage->getValue("role", "");
 }
 
-void MainComponent::saveGuestInfo(juce::String& username, juce::String& password)
+void MainComponent::saveGuestInfo(const juce::String& username, const juce::String& password)
 {
     if (userStorage == NULL)
         return;
@@ -810,6 +1101,7 @@ void MainComponent::refreshSoundListFromStorage()
 {
     savedSoundNames.clear();
     savedSoundPaths.clear();
+    inMemorySounds.clear();
 
     if (userStorage == nullptr)
         return;
@@ -817,16 +1109,14 @@ void MainComponent::refreshSoundListFromStorage()
     juce::String namesJoined = userStorage->getValue("savedSoundNames", "");
     juce::String pathsJoined = userStorage->getValue("savedSoundPaths", "");
 
-    if (!namesJoined.isEmpty()) {
+    if (!namesJoined.isEmpty())
         savedSoundNames = juce::StringArray::fromTokens(namesJoined, "|", "");
-
-        savedSoundNames.removeEmptyStrings();
-    }
-    if (!pathsJoined.isEmpty()) {
+    if (!pathsJoined.isEmpty())
         savedSoundPaths = juce::StringArray::fromTokens(pathsJoined, "|", "");
 
-        savedSoundPaths.removeEmptyStrings();
-    }
+    savedSoundNames.removeEmptyStrings();
+    savedSoundPaths.removeEmptyStrings();
+
     if (savedSoundNames.size() != savedSoundPaths.size())
     {
         int minSize = juce::jmin(savedSoundNames.size(), savedSoundPaths.size());
@@ -834,9 +1124,23 @@ void MainComponent::refreshSoundListFromStorage()
         savedSoundPaths.removeRange(minSize, savedSoundPaths.size() - minSize);
     }
 
-    DBG("Joined names = [" + namesJoined + "]");
-    for (int i = 0; i < savedSoundNames.size(); ++i)
-        DBG("savedSoundNames[" + juce::String(i) + "] = [" + savedSoundNames[i] + "]");
+    // Reload each file back into inMemorySounds
+    for (int i = 0; i < savedSoundPaths.size(); ++i)
+    {
+        juce::File f(savedSoundPaths[i]);
+        if (!f.existsAsFile()) continue;
+
+        std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(f));
+        if (reader == nullptr) continue;
+
+        auto* sound = new SavedSound();
+        sound->name = savedSoundNames[i];
+        sound->sampleRate = reader->sampleRate;
+        sound->numSamples = (int)reader->lengthInSamples;
+        sound->buffer.setSize((int)reader->numChannels, sound->numSamples);
+        reader->read(&sound->buffer, 0, sound->numSamples, 0, true, true);
+        inMemorySounds.add(sound);
+    }
 
     soundList.updateContent();
 }
@@ -886,6 +1190,9 @@ void MainComponent::playRecordedAudio()
 
     playbackBuffer.makeCopyOf(recordingBuffer);
     playbackBuffer.setSize(playbackBuffer.getNumChannels(), recordingPosition, true, false, false);
+
+    displayBuffer = &playbackBuffer;       
+    displayNumSamples = recordingPosition;
 
     bufferSource = std::make_unique<BufferAudioSource>(playbackBuffer, recordingPosition);
 
@@ -983,6 +1290,7 @@ void MainComponent::audioDeviceIOCallbackWithContext(const float* const* inputCh
             juce::MessageManager::callAsync([this]()
                 {
                     recordingStatusLabel.setText("Max recording time reached", juce::dontSendNotification);
+                    repaint();
 
                     juce::AlertWindow::showMessageBoxAsync(
                         juce::AlertWindow::InfoIcon,
@@ -1034,12 +1342,22 @@ void MainComponent::drawWaveform(juce::Graphics& g)
     g.setColour(juce::Colours::white);
     g.drawRect(waveformArea);
 
-    if (recordingPosition <= 1)
+    if (displayBuffer == nullptr || displayNumSamples <= 1)
     {
         g.setColour(juce::Colours::lightgrey);
         g.drawText("No waveform yet", waveformArea, juce::Justification::centred);
         return;
     }
+
+    const float* samples = displayBuffer->getReadPointer(0);
+
+    // Find the actual peak amplitude
+    float peak = 0.0f;
+    for (int i = 0; i < displayNumSamples; ++i)
+        peak = juce::jmax(peak, std::abs(samples[i]));
+
+    if (peak < 0.0001f)
+        peak = 1.0f;
 
     g.setColour(juce::Colours::cyan);
 
@@ -1049,20 +1367,29 @@ void MainComponent::drawWaveform(juce::Graphics& g)
     juce::Path path;
     path.startNewSubPath((float)waveformArea.getX(), (float)midY);
 
-    const float* samples = recordingBuffer.getReadPointer(0);
-    int samplesPerPixel = juce::jmax(1, recordingPosition / juce::jmax(1, width));
+    int samplesPerPixel = juce::jmax(1, displayNumSamples / juce::jmax(1, width));
 
     for (int x = 0; x < width; ++x)
     {
-        int sampleIndex = juce::jmin(recordingPosition - 1, x * samplesPerPixel);
-        float sample = samples[sampleIndex];
-        float y = juce::jmap(sample, -1.0f, 1.0f,
-            (float)waveformArea.getBottom(),
-            (float)waveformArea.getY());
+        int sampleIndex = juce::jmin(displayNumSamples - 1, x * samplesPerPixel);
+
+        float maxSample = 0.0f;
+        for (int s = sampleIndex; s < juce::jmin(sampleIndex + samplesPerPixel, displayNumSamples); ++s)
+            maxSample = juce::jmax(maxSample, std::abs(samples[s]));
+
+        float signedSample = samples[sampleIndex] >= 0 ? maxSample : -maxSample;
+
+        float y = juce::jmap(signedSample / peak, -1.0f, 1.0f,
+            (float)waveformArea.getBottom() - 4,
+            (float)waveformArea.getY() + 4);
+
         path.lineTo((float)(waveformArea.getX() + x), y);
     }
 
     g.strokePath(path, juce::PathStrokeType(2.0f));
+
+    g.setColour(juce::Colours::grey);
+    g.drawHorizontalLine(midY, (float)waveformArea.getX(), (float)waveformArea.getRight());
 
     g.setColour(juce::Colours::orange);
     g.drawText("Pitch: " + juce::String(pitchSlider.getValue(), 1) +
@@ -1106,6 +1433,7 @@ void MainComponent::drawClusterMap(juce::Graphics& g)
     colours.add(juce::Colours::aqua);
 
     int usableWidth = clusterArea.getWidth() - 70;
+    clusterDots.clear(); // rebuild dot positions every paint
 
     for (int i = 0; i < savedSoundNames.size(); ++i)
     {
@@ -1116,28 +1444,128 @@ void MainComponent::drawClusterMap(juce::Graphics& g)
         int x = baseX + (i % 4) * 20;
         int y = baseY + (i % 5) * 18;
 
+        // Store dot position
+        clusterDots.add({ x, y, i });
+
+        // Highlight if selected
+        if (i == selectedSoundRow)
+        {
+            g.setColour(juce::Colours::white);
+            g.drawEllipse((float)x - 2, (float)y - 2, 16.0f, 16.0f, 2.0f);
+        }
+
         g.setColour(colours[i % colours.size()]);
         g.fillEllipse((float)x, (float)y, 12.0f, 12.0f);
+
+        // Draw sound name next to dot
+        g.setColour(juce::Colours::white);
+        g.setFont(11.0f);
+        g.drawText(savedSoundNames[i], x + 15, y, 80, 12, juce::Justification::centredLeft);
     }
 }
 
-void MainComponent::createGuestAccount() {
-    // 1️⃣ Generate guest username
-    juce::String guestUser = "guest" + juce::String(random.nextInt(1000));
-    
-    // 2️⃣ Set default password
-    juce::String guestPass = "guest";
-    
-    // 3️⃣ Save guest credentials
-    saveGuestInfo(guestUser, guestPass);
-    
-    // 4️⃣ Show confirmation asynchronously
-    juce::AlertWindow::showMessageBoxAsync(
-        juce::AlertWindow::InfoIcon,
-        "Guest Account Created",
-        "Guest account created successfully.\n\nUsername: " + guestUser + "\nPassword: " + guestPass
-    );
+void MainComponent::mouseDown(const juce::MouseEvent& e)
+{
+    if (currentState != AppState::MAIN_APP)
+        return;
+
+    // Check if click is inside cluster area
+    if (!clusterArea.contains(e.getPosition()))
+        return;
+
+    const int hitRadius = 10;
+
+    for (auto& dot : clusterDots)
+    {
+        int cx = dot.x + 6; // centre of the 12px ellipse
+        int cy = dot.y + 6;
+
+        if (e.getPosition().getDistanceFrom(juce::Point<int>(cx, cy)) <= hitRadius)
+        {
+            // Select this sound in the list
+            selectedSoundRow = dot.soundIndex;
+            soundList.selectRow(selectedSoundRow);
+
+            // If double clicked, play it
+            if (e.getNumberOfClicks() == 2 && dot.soundIndex < inMemorySounds.size())
+            {
+                auto* sound = inMemorySounds[dot.soundIndex];
+                transportSource.stop();
+                transportSource.setSource(nullptr);
+                bufferSource.reset();
+
+                playbackBuffer.makeCopyOf(sound->buffer);
+                playbackBuffer.setSize(playbackBuffer.getNumChannels(), sound->numSamples, true, false, false);
+
+                bufferSource = std::make_unique<BufferAudioSource>(playbackBuffer, sound->numSamples);
+
+                float sliderVal = pitchSlider.getValue();
+                float rate = 0.5f * std::pow(4.0f, sliderVal / 100.0f);
+                bufferSource->setPlaybackRate(rate);
+
+                int trimSamples = static_cast<int>((lengthSlider.getValue() / 100.0) * sound->numSamples);
+                bufferSource->setTrimLength(trimSamples);
+
+                float dB = juce::jmap((float)volumeSlider.getValue(), 0.0f, 100.0f, -60.0f, 0.0f);
+                bufferSource->setVolume(juce::Decibels::decibelsToGain(dB));
+
+                transportSource.setSource(bufferSource.get(), 0, nullptr, sound->sampleRate);
+                transportSource.start();
+            }
+
+            repaint();
+            return;
+        }
+    }
 }
+
+void MainComponent::listBoxItemClicked(int row, const juce::MouseEvent& e)
+{
+    selectedSoundRow = row;
+
+    if (e.mods.isRightButtonDown())
+    {
+        juce::PopupMenu menu;
+        menu.addItem(1, "Delete \"" + savedSoundNames[row] + "\"");
+
+        menu.showMenuAsync(juce::PopupMenu::Options(), [this, row](int result)
+        {
+            if (result == 1)
+            {
+                juce::AlertWindow::showOkCancelBox(
+                    juce::AlertWindow::WarningIcon,
+                    "Delete Sound",
+                    "Are you sure you want to delete \"" + savedSoundNames[row] + "\"?",
+                    "Delete",
+                    "Cancel",
+                    nullptr,
+                    juce::ModalCallbackFunction::create([this, row](int confirmed)
+                    {
+                        if (confirmed == 1)
+                        {
+                            // Delete the file from disk too
+                            juce::File f(savedSoundPaths[row]);
+                            if (f.existsAsFile())
+                                f.deleteFile();
+
+                            inMemorySounds.remove(row);
+                            savedSoundNames.remove(row);
+                            savedSoundPaths.remove(row);
+                            selectedSoundRow = -1;
+
+                            // Persist the updated list
+                            saveSoundListToStorage();
+                            soundList.deselectAllRows();
+                            soundList.updateContent();
+                            repaint();
+                        }
+                    }));
+            }
+        });
+    }
+}
+
+
 
 juce::StringArray MainComponent::getMenuBarNames()
 {
@@ -1150,14 +1578,22 @@ juce::PopupMenu MainComponent::getMenuForIndex(int menuIndex, const juce::String
 
     juce::PopupMenu menu;
 
-    if (menuIndex == 0) { // File menu
-        menu.addItem(1, "Load");
-        menu.addItem(2, "Create Guest Account");
-        menu.addItem(3, "Exit");  // <-- Added Exit as item 3
+    if (menuIndex == 0) // File menu
+    {
+        if (isOwnerLoggedIn())
+        {
+            menu.addItem(1, "Load");
+            menu.addItem(2, "Create Guest Account");
+        }
+        menu.addItem(3, "Exit");
     }
-    else if (menuIndex == 1) { // Edit menu
-        menu.addItem(1, "Clear Sound Selection");
-        menu.addItem(2, "Clear Sound List");
+    else if (menuIndex == 1) // Edit menu
+    {
+        if (isOwnerLoggedIn())
+        {
+            menu.addItem(1, "Clear Sound Selection");
+            menu.addItem(2, "Clear Sound List");
+        }
     }
 
     return menu;
@@ -1191,25 +1627,36 @@ void MainComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
                 break;
         }
     }
-    else if (topLevelMenuIndex == 1) { // Edit menu
-        switch (menuItemID)
-        {
-            case 1: // Clear selection
-                selectedSoundRow = -1;
-                soundList.deselectAllRows();
-                break;
-            case 2: // Clear list
-                savedSoundNames.clear();
-                savedSoundPaths.clear();
-                selectedSoundRow = -1;
-                if (userStorage) {
-                    userStorage->setValue("savedSoundNames", "");
-                    userStorage->setValue("savedSoundPaths", "");
-                }
-                soundList.updateContent();
-                soundList.deselectAllRows();
-                repaint();
-                break;
-        }
+    else if (topLevelMenuIndex == 1)
+{
+    switch (menuItemID)
+    {
+        case 1: // Clear Recording
+            transportSource.stop();
+            transportSource.setSource(nullptr);
+            bufferSource.reset();
+            recordingPosition = 0;
+            recordingBuffer.clear();
+            displayBuffer = nullptr;
+            displayNumSamples = 0;
+            recordingStatusLabel.setText("Not recording", juce::dontSendNotification);
+            repaint();
+            break;
+
+        case 2: // Clear Sound List
+            savedSoundNames.clear();
+            savedSoundPaths.clear();
+            inMemorySounds.clear();
+            selectedSoundRow = -1;
+            if (userStorage) {
+                userStorage->setValue("savedSoundNames", "");
+                userStorage->setValue("savedSoundPaths", "");
+                userStorage->saveIfNeeded();
+            }
+            soundList.updateContent();
+            soundList.deselectAllRows();
+            repaint();
+            break;
     }
+}
 }
