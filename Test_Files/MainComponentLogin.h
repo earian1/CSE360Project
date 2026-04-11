@@ -28,8 +28,13 @@ public:
         return "";
     }
 
+    // Session tracking
+    void setLoggedIn(bool state) { loggedIn = state; }
+    bool isLoggedIn() const { return loggedIn; }
+
 private:
     std::string savedUsername;
     std::string savedPassword;
     std::string savedAccountInfo;
+    bool loggedIn = false;  // ← must be inside private, not after it
 };

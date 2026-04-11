@@ -36,6 +36,39 @@ int main() {
         "Verifies that volume, pitch, and length sliders clamp values within their defined min/max bounds";
     descriptions["UserManagementTest::testGuestPermissions"] =
         "Verifies that Guest users cannot record or save, while Owner users have full access";
+    descriptions["UserManagementTest::testGuestCannotDelete"] =
+        "Verifies that Guest users cannot delete sounds from the list, while Owner can";
+
+    descriptions["UserManagementTest::testGuestDownloadRequiresSelection"] =
+        "Verifies that download is blocked when no sound is selected, and allowed when one is selected";
+
+    descriptions["UserManagementTest::testGuestCannotCreateGuest"] =
+        "Verifies that Guest users cannot create new guest accounts, only Owner can";
+    descriptions["UserManagementTest::testMaxRecordingDuration"] =
+        "Verifies that recording stops automatically after the 10 second maximum duration is reached";
+
+    descriptions["UserManagementTest::testDeleteSound"] =
+        "Verifies that after deleting a sound it no longer appears in the list";
+
+    descriptions["UserManagementTest::testSoundListEmpty"] =
+        "Verifies that clearing the sound list removes all entries and the list reports as empty";
+
+    descriptions["UserManagementTest::testPitchAffectsPlaybackRate"] =
+        "Verifies that the pitch slider value correctly maps to playback rate at neutral, min, and max positions";
+
+    descriptions["UserManagementTest::testVolumeZero"] =
+        "Verifies that setting volume to 0 produces silence and volume at 100 produces full gain";
+
+    descriptions["UserManagementTest::testLogout"] =
+        "Verifies that after logout all owner and guest functions are blocked";
+    descriptions["UserManagementTest::testRecordingOverwrite"] =
+    "Verifies that starting a new recording clears the previous one and resets the sample count to zero";
+
+    descriptions["UserManagementTest::testSoundListSize"] =
+        "Verifies that adding and removing sounds correctly changes the size of the sound list";
+
+    descriptions["UserManagementTest::testSessionPersistence"] =
+        "Verifies that a logged in user stays logged in until logout is explicitly called";
 
     int totalTests = 0;
     int totalFailures = 0;

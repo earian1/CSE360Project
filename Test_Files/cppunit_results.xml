@@ -23,9 +23,48 @@
     <Test id="7">
       <Name>UserManagementTest::testVolumeSliderRange</Name>
     </Test>
+    <Test id="8">
+      <Name>UserManagementTest::testGuestPermissions</Name>
+    </Test>
+    <Test id="9">
+      <Name>UserManagementTest::testGuestCannotDelete</Name>
+    </Test>
+    <Test id="10">
+      <Name>UserManagementTest::testGuestDownloadRequiresSelection</Name>
+    </Test>
+    <Test id="11">
+      <Name>UserManagementTest::testGuestCannotCreateGuest</Name>
+    </Test>
+    <Test id="12">
+      <Name>UserManagementTest::testMaxRecordingDuration</Name>
+    </Test>
+    <Test id="13">
+      <Name>UserManagementTest::testDeleteSound</Name>
+    </Test>
+    <Test id="14">
+      <Name>UserManagementTest::testSoundListEmpty</Name>
+    </Test>
+    <Test id="15">
+      <Name>UserManagementTest::testPitchAffectsPlaybackRate</Name>
+    </Test>
+    <Test id="16">
+      <Name>UserManagementTest::testVolumeZero</Name>
+    </Test>
+    <Test id="17">
+      <Name>UserManagementTest::testLogout</Name>
+    </Test>
+    <Test id="18">
+      <Name>UserManagementTest::testRecordingOverwrite</Name>
+    </Test>
+    <Test id="19">
+      <Name>UserManagementTest::testSoundListSize</Name>
+    </Test>
+    <Test id="20">
+      <Name>UserManagementTest::testSessionPersistence</Name>
+    </Test>
   </SuccessfulTests>
   <Statistics>
-    <Tests>7</Tests>
+    <Tests>20</Tests>
     <FailuresTotal>0</FailuresTotal>
     <Errors>0</Errors>
     <Failures>0</Failures>
