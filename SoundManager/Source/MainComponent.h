@@ -115,6 +115,8 @@ juce::OwnedArray<SavedSound> inMemorySounds;
     void setupUI();
     void updateVisibility();
     bool blinkState = false;
+    bool isUpdatingSlider = false;
+    bool isPaused = false;
 
 
     // ---------------- FIRST USER SETUP / CREATE ACCOUNT ----------------
@@ -151,7 +153,7 @@ juce::OwnedArray<SavedSound> inMemorySounds;
 
     juce::TextButton recordButton { "Record" };
     juce::TextButton playButton { "Play" };
-    juce::TextButton stopButton { "Stop" };
+    juce::TextButton stopButton { "Pause" };
     juce::TextButton saveButton { "Save" };
     juce::TextButton createGuestButton { "Create Guest Account" };
     juce::TextButton logoutButton { "Logout" };
@@ -164,6 +166,7 @@ juce::OwnedArray<SavedSound> inMemorySounds;
 
     juce::Label pitchLabel;
     juce::Label lengthLabel;
+    juce::Label lengthTimeLabel;
     juce::Label volumeLabel;
 
     // ---------------- SOUND LIST ----------------
