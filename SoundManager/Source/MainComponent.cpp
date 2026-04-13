@@ -528,17 +528,26 @@ forgotButton.onClick = [this]()
 
     recordButton.onClick = [this]()
 {
+
+    transportSource.stop();
+    transportSource.setSource(nullptr);
+    bufferSource.reset();
+    
     if (!isRecording)
     {
         isRecording = true;
         recordingPosition = 0;
-        blinkState = true;
 
-        int totalSamples = (int)(currentSampleRate * 3600.0);
+        selectedSoundRow = -1;
+        soundList.deselectAllRows();
+
+        int totalSamples = (int)(currentSampleRate * 10.0);
         recordingBuffer.setSize(2, totalSamples);
         recordingBuffer.clear();
 
-        recordButton.setButtonText("Stop Recording"); // ← add this
+        blinkState = true;
+        startTimer(500);
+
         recordingStatusLabel.setText("Recording started...", juce::dontSendNotification);
     }
     else
@@ -565,6 +574,13 @@ forgotButton.onClick = [this]()
 
     transportSource.stop();
     transportSource.setSource(nullptr);
+
+    if (recordingPosition > 0 && selectedSoundRow == -1)
+    {
+        playRecordedAudio();
+        repaint();
+        return;
+    }
 
     if (selectedSoundRow >= 0 && selectedSoundRow < savedSoundNames.size())
     {
@@ -1851,19 +1867,43 @@ void MainComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
             break;
 
         case 2: // Clear Sound List
-            savedSoundNames.clear();
-            savedSoundPaths.clear();
-            inMemorySounds.clear();
-            selectedSoundRow = -1;
-            if (userStorage) {
-                userStorage->setValue("savedSoundNames", "");
-                userStorage->setValue("savedSoundPaths", "");
-                userStorage->saveIfNeeded();
+    juce::AlertWindow::showOkCancelBox(
+        juce::AlertWindow::WarningIcon,
+        "Clear Sound List",
+        "Are you sure you want to delete ALL saved sounds? This cannot be undone.",
+        "Yes, Delete All",
+        "Cancel",
+        nullptr,
+        juce::ModalCallbackFunction::create([this](int confirmed)
+        {
+            if (confirmed == 1)
+            {
+                // Delete all files from disk
+                for (int i = 0; i < savedSoundPaths.size(); ++i)
+                {
+                    juce::File f(savedSoundPaths[i]);
+                    if (f.existsAsFile())
+                        f.deleteFile();
+                }
+
+                savedSoundNames.clear();
+                savedSoundPaths.clear();
+                inMemorySounds.clear();
+                selectedSoundRow = -1;
+
+                if (userStorage)
+                {
+                    userStorage->setValue("savedSoundNames", "");
+                    userStorage->setValue("savedSoundPaths", "");
+                    userStorage->saveIfNeeded();
+                }
+
+                soundList.updateContent();
+                soundList.deselectAllRows();
+                repaint();
             }
-            soundList.updateContent();
-            soundList.deselectAllRows();
-            repaint();
-            break;
+        }));
+    break;
     }
 }
 }
