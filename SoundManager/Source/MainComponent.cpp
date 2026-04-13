@@ -81,9 +81,7 @@ void MainComponent::applySlidersToBufferSource()
     bufferSource->setVolume(gain);
 
     // Length (trim)
-    float lenValue = lengthSlider.getValue(); // 0-100
-    int trimSamples = static_cast<int>(recordingBuffer.getNumSamples() * (lenValue / 100.0f));
-    bufferSource->setTrimLength(trimSamples);
+    
 }
 
 bool MainComponent::userExists()
@@ -100,6 +98,8 @@ MainComponent::MainComponent(juce::ApplicationProperties& props)
     setSize(1000, 700);
 
     setupUI();
+
+    startTimer(100); // start timer for UI updates (like recording status)
 
     currentState = AppState::LOGIN;
 
@@ -144,6 +144,7 @@ void MainComponent::setRoleChoiceUnlocked(bool unlocked)
 }
 
 void MainComponent::setupUI()
+
 {
 
     
@@ -433,28 +434,24 @@ forgotButton.onClick = [this]()
 
     // Sliders
     pitchLabel.setText("Pitch", juce::dontSendNotification);
-    lengthLabel.setText("Length", juce::dontSendNotification);
     volumeLabel.setText("Volume", juce::dontSendNotification);
 
     pitchLabel.setColour(juce::Label::textColourId, juce::Colours::white);
-    lengthLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     volumeLabel.setColour(juce::Label::textColourId, juce::Colours::white);
 
     pitchSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    lengthSlider.setSliderStyle(juce::Slider::LinearHorizontal);
     volumeSlider.setSliderStyle(juce::Slider::LinearHorizontal);
 
     pitchSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    lengthSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
     volumeSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
 
     pitchSlider.setRange(0, 100, 1);
-    lengthSlider.setRange(0, 100, 1);
     volumeSlider.setRange(0, 100, 1);
 
     pitchSlider.setValue(50);   // neutral
-    lengthSlider.setValue(100); // full length
     volumeSlider.setValue(80);  // default volume
+
+
 
     volumeSlider.onValueChange = [this]()
     {
@@ -481,17 +478,34 @@ forgotButton.onClick = [this]()
     repaint();
     };
 
+    lengthLabel.setText("Progress", juce::dontSendNotification);
+
+    lengthSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    lengthSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+    lengthSlider.setRange(0.0, 1.0, 0.001);
+    lengthSlider.setValue(0.0);
+
+    lengthTimeLabel.setText("0:00 / 0:00", juce::dontSendNotification);
+    lengthTimeLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    addAndMakeVisible(lengthTimeLabel);
+
+    // When user drags the slider, seek to that position
     lengthSlider.onValueChange = [this]()
     {
-    if (bufferSource && recordingPosition > 0)
-    {
-        int trimSamples = (int)(
-            (lengthSlider.getValue() / 100.0) * recordingPosition
-        );
+        if (isUpdatingSlider) return; // ignore updates we triggered ourselves
 
-        bufferSource->setTrimLength(trimSamples);
-    }
-    repaint();
+        double position = lengthSlider.getValue();
+
+        if (bufferSource != nullptr)
+        {
+            int seekSample = (int)(position * displayNumSamples);
+            bufferSource->setNextReadPosition(seekSample);
+        }
+        else if (currentAudioFile != nullptr)
+        {
+            double totalLength = transportSource.getLengthInSeconds();
+            transportSource.setPosition(position * totalLength);
+        }
     };
 
     addAndMakeVisible(pitchLabel);
@@ -518,23 +532,22 @@ forgotButton.onClick = [this]()
     {
         isRecording = true;
         recordingPosition = 0;
+        blinkState = true;
 
-        int totalSamples = (int)(currentSampleRate * 10.0);
+        int totalSamples = (int)(currentSampleRate * 3600.0);
         recordingBuffer.setSize(2, totalSamples);
         recordingBuffer.clear();
 
-        blinkState = true;
-        startTimer(500);
-
+        recordButton.setButtonText("Stop Recording"); // ← add this
         recordingStatusLabel.setText("Recording started...", juce::dontSendNotification);
     }
     else
     {
         isRecording = false;
         blinkState = false;
-        stopTimer();
         repaint();
 
+        recordButton.setButtonText("Record"); // ← add this
         recordingStatusLabel.setText("Recording stopped", juce::dontSendNotification);
 
         juce::AlertWindow::showMessageBoxAsync(
@@ -547,56 +560,111 @@ forgotButton.onClick = [this]()
 
     playButton.onClick = [this]()
 {
+    isPaused = false;
+    stopButton.setButtonText("Pause");
+
     transportSource.stop();
     transportSource.setSource(nullptr);
 
-    if (selectedSoundRow >= 0 && selectedSoundRow < inMemorySounds.size())
+    if (selectedSoundRow >= 0 && selectedSoundRow < savedSoundNames.size())
     {
-        auto* sound = inMemorySounds[selectedSoundRow];
+        // First try inMemorySounds
+        if (selectedSoundRow < inMemorySounds.size())
+        {
+            auto* sound = inMemorySounds[selectedSoundRow];
 
-        bufferSource.reset();
-        playbackBuffer.makeCopyOf(sound->buffer);
-        playbackBuffer.setSize(playbackBuffer.getNumChannels(), sound->numSamples, true, false, false);
+            bufferSource.reset();
+            playbackBuffer.makeCopyOf(sound->buffer);
+            playbackBuffer.setSize(playbackBuffer.getNumChannels(), sound->numSamples, true, false, false);
 
-        displayBuffer = &playbackBuffer;      
-        displayNumSamples = sound->numSamples;
+            displayBuffer = &playbackBuffer;
+            displayNumSamples = sound->numSamples;
 
-        bufferSource = std::make_unique<BufferAudioSource>(playbackBuffer, sound->numSamples);
+            bufferSource = std::make_unique<BufferAudioSource>(playbackBuffer, sound->numSamples);
 
-        float sliderVal = pitchSlider.getValue();
-        float rate = 0.5f * std::pow(4.0f, sliderVal / 100.0f);
-        bufferSource->setPlaybackRate(rate);
+            float sliderVal = pitchSlider.getValue();
+            float rate = 0.5f * std::pow(4.0f, sliderVal / 100.0f);
+            bufferSource->setPlaybackRate(rate);
 
-        int trimSamples = static_cast<int>((lengthSlider.getValue() / 100.0) * sound->numSamples);
-        bufferSource->setTrimLength(trimSamples);
+            float dB = juce::jmap((float)volumeSlider.getValue(), 0.0f, 100.0f, -60.0f, 0.0f);
+            bufferSource->setVolume(juce::Decibels::decibelsToGain(dB));
 
-        float dB = juce::jmap((float)volumeSlider.getValue(), 0.0f, 100.0f, -60.0f, 0.0f);
-        bufferSource->setVolume(juce::Decibels::decibelsToGain(dB));
+            transportSource.setSource(bufferSource.get(), 0, nullptr, sound->sampleRate);
+            transportSource.start();
+            repaint();
+            return;
+        }
 
-        transportSource.setSource(bufferSource.get(), 0, nullptr, sound->sampleRate);
-        transportSource.start();
-        repaint();
+        // Fall back to loading from file path
+       // Fall back to loading from file path
+        if (selectedSoundRow < savedSoundPaths.size())
+        {
+            juce::File f(savedSoundPaths[selectedSoundRow]);
+            if (f.existsAsFile())
+            {
+                std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(f));
+                if (reader != nullptr)
+                {
+                    // Use AudioFormatReaderSource directly — no static
+                    currentAudioFile.reset(new juce::AudioFormatReaderSource(reader.release(), true));
+                    
+                    double fileSampleRate = currentAudioFile->getAudioFormatReader()->sampleRate;
+                    int numSamples = (int)currentAudioFile->getAudioFormatReader()->lengthInSamples;
+
+                    transportSource.setSource(currentAudioFile.get(), 0, nullptr, fileSampleRate);
+
+                    // Set display buffer for waveform
+                    displayNumSamples = numSamples;
+
+                    float dB = juce::jmap((float)volumeSlider.getValue(), 0.0f, 100.0f, -60.0f, 0.0f);
+                    transportSource.setGain(juce::Decibels::decibelsToGain(dB));
+
+                    transportSource.start();
+                    repaint();
+                    return;
+                }
+            }
+        }
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "Playback Error",
+            "Could not load the selected sound file.");
         return;
     }
 
     // Fall back to playing the current recording if nothing selected
-    if (recordingPosition > 0){
+    if (recordingPosition > 0)
+    {
         playRecordedAudio();
         repaint();
     }
-    else{
+    else
+    {
         juce::AlertWindow::showMessageBoxAsync(
             juce::AlertWindow::WarningIcon,
             "Playback Error",
             "No recording or sound selected!");
-        }
+    }
 };
 
 
     stopButton.onClick = [this]()
-        {
-            transportSource.stop();
-        };
+{
+    if (transportSource.isPlaying())
+    {
+        // Currently playing → pause it
+        transportSource.stop();
+        isPaused = true;
+        stopButton.setButtonText("Resume");
+    }
+    else if (isPaused)
+    {
+        // Currently paused → resume it
+        transportSource.start();
+        isPaused = false;
+        stopButton.setButtonText("Pause");
+    }
+};
 
     saveButton.onClick = [this]()
 {
@@ -729,10 +797,10 @@ forgotButton.onClick = [this]()
 
             // Step 2: Let user choose where to save it on their computer
             fileChooser = std::make_unique<juce::FileChooser>(
-                "Save Sound To Your Computer",
-                juce::File::getSpecialLocation(juce::File::userDesktopDirectory)
-                    .getChildFile(selectedName + ".wav"),
-                "*.wav");
+    "Save Sound To Your Computer",
+    juce::File::getSpecialLocation(juce::File::userDesktopDirectory)
+        .getChildFile(selectedName + ".wav"),
+    "*.wav;*.mp3");  // ← add *.mp3 to the filter if you implement MP3 export in the future
 
             fileChooser->launchAsync(
                 juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
@@ -1098,7 +1166,9 @@ void MainComponent::resized()
     slidersArea.removeFromTop(8);
 
     lengthLabel.setBounds(slidersArea.removeFromTop(22));
-    lengthSlider.setBounds(slidersArea.removeFromTop(32));
+    auto lengthRow = slidersArea.removeFromTop(32);
+    lengthSlider.setBounds(lengthRow.removeFromLeft(lengthRow.getWidth() - 80));
+    lengthTimeLabel.setBounds(lengthRow);
     slidersArea.removeFromTop(8);
 
     volumeLabel.setBounds(slidersArea.removeFromTop(22));
@@ -1277,10 +1347,6 @@ void MainComponent::playRecordedAudio()
 
     bufferSource->setPlaybackRate(rate);
 
-    // Trim
-    int trimSamples = static_cast<int>((lengthSlider.getValue() / 100.0) * recordingPosition);
-    bufferSource->setTrimLength(trimSamples);
-
     // Volume
     float volValue = volumeSlider.getValue();
     float dB = juce::jmap(volValue, 0.0f, 100.0f, -60.0f, 0.0f);
@@ -1357,21 +1423,6 @@ void MainComponent::audioDeviceIOCallbackWithContext(const float* const* inputCh
         juce::dontSendNotification);
         });
 
-        if (recordingPosition >= recordingBuffer.getNumSamples())
-        {
-            isRecording = false;
-
-            juce::MessageManager::callAsync([this]()
-                {
-                    recordingStatusLabel.setText("Max recording time reached", juce::dontSendNotification);
-                    repaint();
-
-                    juce::AlertWindow::showMessageBoxAsync(
-                        juce::AlertWindow::InfoIcon,
-                        "Recording Stopped",
-                        "Maximum recording time reached (10 seconds).");
-                });
-        }
     }
 
     for (int channel = 0; channel < numOutputChannels; ++channel)
@@ -1577,8 +1628,6 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
                 float rate = 0.5f * std::pow(4.0f, sliderVal / 100.0f);
                 bufferSource->setPlaybackRate(rate);
 
-                int trimSamples = static_cast<int>((lengthSlider.getValue() / 100.0) * sound->numSamples);
-                bufferSource->setTrimLength(trimSamples);
 
                 float dB = juce::jmap((float)volumeSlider.getValue(), 0.0f, 100.0f, -60.0f, 0.0f);
                 bufferSource->setVolume(juce::Decibels::decibelsToGain(dB));
@@ -1642,8 +1691,62 @@ void MainComponent::listBoxItemClicked(int row, const juce::MouseEvent& e)
 
 void MainComponent::timerCallback()
 {
-    blinkState = !blinkState;
-    repaint();
+    // Blink recording dot
+    if (isRecording)
+    {
+        blinkState = !blinkState;
+        repaint();
+    }
+
+    // Update progress bar
+    if (transportSource.isPlaying())
+    {
+        double position = 0.0;
+        double currentTime = 0.0;
+        double totalTime = 0.0;
+
+        if (bufferSource != nullptr && displayNumSamples > 0)
+        {
+            float sliderVal = pitchSlider.getValue();
+            float rate = 0.5f * std::pow(4.0f, sliderVal / 100.0f);
+
+            int currentSample = (int)bufferSource->getNextReadPosition();
+            int adjustedSample = (int)(currentSample / rate); // account for pitch rate
+            int adjustedTotal = (int)(displayNumSamples / rate);
+
+            position = (double)adjustedSample / (double)adjustedTotal;
+            currentTime = (double)adjustedSample / currentSampleRate;
+            totalTime = (double)adjustedTotal / currentSampleRate;
+        }
+        else if (currentAudioFile != nullptr)
+        {
+            double totalLength = transportSource.getLengthInSeconds();
+            if (totalLength > 0.0)
+            {
+                currentTime = transportSource.getCurrentPosition();
+                totalTime = totalLength;
+                position = currentTime / totalTime;
+            }
+        }
+
+        // Update slider without triggering onValueChange
+        isUpdatingSlider = true;
+        lengthSlider.setValue(juce::jlimit(0.0, 1.0, position));
+        isUpdatingSlider = false;
+
+        // Format time as M:SS / M:SS
+        auto formatTime = [](double seconds) -> juce::String
+        {
+            int mins = (int)(seconds / 60.0);
+            int secs = (int)(seconds) % 60;
+            return juce::String(mins) + ":" + (secs < 10 ? "0" : "") + juce::String(secs);
+        };
+
+        lengthTimeLabel.setText(formatTime(currentTime) + " / " + formatTime(totalTime),
+            juce::dontSendNotification);
+
+        repaint();
+    }
 }
 
 juce::StringArray MainComponent::getMenuBarNames()
@@ -1684,20 +1787,45 @@ void MainComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
         switch (menuItemID)
         {
             case 1: { // Load
-                auto chooser = std::make_shared<juce::FileChooser>("Load a sound file", juce::File{}, "*.wav;*.mp3;*.aiff");
-                chooser->launchAsync(
-                    juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-                    [this, chooser](const juce::FileChooser& fc) {
-                        juce::File f = fc.getResult();
-                        if (f.existsAsFile()) {
-                            addSavedSound(f.getFileName(), f.getFullPathName());
-                            refreshSoundListFromStorage();
-                            soundList.updateContent();
-                            repaint();
-                        }
-                    });
-                break;
+    auto chooser = std::make_shared<juce::FileChooser>("Load a sound file", juce::File{}, "*.wav;*.mp3;*.aiff");
+    chooser->launchAsync(
+        juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+        [this, chooser](const juce::FileChooser& fc) {
+            juce::File f = fc.getResult();
+            if (f.existsAsFile())
+            {
+                // Read the file into an AudioBuffer
+                std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(f));
+
+                if (reader == nullptr)
+                {
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::AlertWindow::WarningIcon,
+                        "Load Error",
+                        "Could not read the selected file.");
+                    return;
+                }
+
+                // Load into memory
+                auto* sound = new SavedSound();
+                sound->name = f.getFileNameWithoutExtension();
+                sound->sampleRate = reader->sampleRate;
+                sound->numSamples = (int)reader->lengthInSamples;
+                sound->buffer.setSize((int)reader->numChannels, sound->numSamples);
+                reader->read(&sound->buffer, 0, sound->numSamples, 0, true, true);
+                inMemorySounds.add(sound);
+
+                // Add to the visible list
+                savedSoundNames.add(f.getFileNameWithoutExtension());
+                savedSoundPaths.add(f.getFullPathName());
+                saveSoundListToStorage();
+
+                soundList.updateContent();
+                repaint();
             }
+        });
+    break;
+}
             case 2: // Create Guest Account
                 createGuestAccount();
                 break;
