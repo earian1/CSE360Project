@@ -102,6 +102,7 @@ juce::OwnedArray<SavedSound> inMemorySounds;
     void refreshSoundListFromStorage();
     void saveSoundListToStorage();
     void addSavedSound(const juce::String& name, const juce::String& path);
+    void resetSession();
     void listBoxItemClicked(int row, const juce::MouseEvent& e) override;
 
     bool isOwnerLoggedIn() const;
@@ -110,6 +111,7 @@ juce::OwnedArray<SavedSound> inMemorySounds;
     void drawWaveform(juce::Graphics& g);
     void drawClusterMap(juce::Graphics& g);
     void applySlidersToBufferSource();
+    void listBoxItemDoubleClicked(int row, const juce::MouseEvent&) override;
 
     void ensureDefaultAccounts();
     void setupUI();
