@@ -280,6 +280,8 @@ void MainComponent::setupUI()
                  enteredPassword == storedPassword &&
                  storedRole == "Owner")
         {
+            resetSession();
+
             loggedInAsGuest = false;
             currentState = AppState::MAIN_APP;
 
@@ -293,10 +295,7 @@ void MainComponent::setupUI()
             resized();
             repaint();
 
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::InfoIcon,
-                "Login Successful",
-                "Welcome, Owner!");
+
         }
         else
         {
@@ -315,16 +314,17 @@ void MainComponent::setupUI()
         if (enteredUsername == guestUsername &&
             enteredPassword == guestPassword)
         {
+
+            resetSession();
+
+        
             loggedInAsGuest = true;
             currentState = AppState::MAIN_APP;
             updateVisibility();
             resized();
             repaint();
 
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::InfoIcon,
-                "Login Successful",
-                "Welcome, Guest!");
+
         }
         else
         {
@@ -536,6 +536,7 @@ forgotButton.onClick = [this]()
     if (!isRecording)
     {
         isRecording = true;
+        recordButton.setButtonText("Stop Recording");
         recordingPosition = 0;
 
         selectedSoundRow = -1;
@@ -559,10 +560,6 @@ forgotButton.onClick = [this]()
         recordButton.setButtonText("Record"); // ← add this
         recordingStatusLabel.setText("Recording stopped", juce::dontSendNotification);
 
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::InfoIcon,
-            "Recording",
-            "Recording stopped.");
     }
 };
 
@@ -769,10 +766,6 @@ forgotButton.onClick = [this]()
             soundList.updateContent();
             repaint();
 
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::InfoIcon,
-                "Saved!",
-                "Sound \"" + soundName + "\" saved!");
         }
 
         delete nameDialog;
@@ -936,6 +929,9 @@ logoutButton.setButtonText("Logout");
 
 logoutButton.onClick = [this]()
 {
+
+    resetSession();
+
     transportSource.stop();
     transportSource.setSource(nullptr);
     bufferSource.reset();
@@ -952,11 +948,16 @@ logoutButton.onClick = [this]()
     currentState = AppState::LOGIN;
     updateVisibility();
     resized();
+
+    repaint();
 };
 
 }
 
 void MainComponent::createGuestAccount() {
+
+    resetSession();
+
     juce::String guestUser = "guest" + juce::String(random.nextInt(1000));
     juce::String guestPass = "guest";
     saveGuestInfo(guestUser, guestPass);
@@ -1032,6 +1033,7 @@ void MainComponent::updateVisibility()
     waveformLabel.setVisible(mainVisible);
     clusterMapLabel.setVisible(mainVisible);
     recordingStatusLabel.setVisible(mainVisible);
+    lengthTimeLabel.setVisible(mainVisible);
 
     recordButton.setVisible(isOwner);
     saveButton.setVisible(isOwner);
@@ -1046,6 +1048,7 @@ void MainComponent::updateVisibility()
     lengthSlider.setVisible(isOwner || isGuest);
     volumeLabel.setVisible(isOwner || isGuest);
     volumeSlider.setVisible(isOwner || isGuest);
+    lengthTimeLabel.setVisible(mainVisible);
     downloadButton.setVisible(isGuest);
 }
 
@@ -1072,6 +1075,48 @@ void MainComponent::paint(juce::Graphics& g)
             g.fillEllipse((float)dotX, (float)dotY, 12.0f, 12.0f);
         }
     }
+}
+
+void MainComponent::resetSession()
+{
+    // Stop all audio
+    transportSource.stop();
+    transportSource.setSource(nullptr);
+    bufferSource.reset();
+    currentAudioFile.reset();
+
+    // Clear selection
+    selectedSoundRow = -1;
+    soundList.deselectAllRows();
+
+    // Clear waveform display
+    displayBuffer = nullptr;
+    displayNumSamples = 0;
+
+    // Reset recording state
+    isRecording = false;
+    recordingPosition = 0;
+
+    // Reset buffers
+    recordingBuffer.clear();
+    playbackBuffer.clear();
+
+    // Reset sliders to default
+    pitchSlider.setValue(50);
+    volumeSlider.setValue(80);
+    lengthSlider.setValue(0.0);
+
+    lengthTimeLabel.setText("0:00 / 0:00", juce::dontSendNotification);
+    isUpdatingSlider = true;
+    lengthSlider.setValue(0.0);
+    isUpdatingSlider = false;
+
+
+    // Reset playback state
+    isPaused = false;
+    stopButton.setButtonText("Pause");
+
+    repaint();
 }
 
 void MainComponent::resized()
@@ -1605,6 +1650,50 @@ void MainComponent::drawClusterMap(juce::Graphics& g)
     }
 }
 
+void MainComponent::listBoxItemDoubleClicked(int row, const juce::MouseEvent&)
+{
+    selectedSoundRow = row;
+
+    if (row < 0 || row >= savedSoundNames.size())
+        return;
+
+    transportSource.stop();
+    transportSource.setSource(nullptr);
+    bufferSource.reset();
+
+    // Try in-memory first
+    if (row < inMemorySounds.size())
+    {
+        auto* sound = inMemorySounds[row];
+
+        playbackBuffer.makeCopyOf(sound->buffer);
+        playbackBuffer.setSize(playbackBuffer.getNumChannels(), sound->numSamples, true, false, false);
+
+        displayBuffer = &playbackBuffer;
+        displayNumSamples = sound->numSamples;
+
+        bufferSource = std::make_unique<BufferAudioSource>(playbackBuffer, sound->numSamples);
+
+        float sliderVal = pitchSlider.getValue();
+        float rate = 0.5f * std::pow(4.0f, sliderVal / 100.0f);
+        bufferSource->setPlaybackRate(rate);
+
+        float dB = juce::jmap((float)volumeSlider.getValue(), 0.0f, 100.0f, -60.0f, 0.0f);
+        bufferSource->setVolume(juce::Decibels::decibelsToGain(dB));
+
+        transportSource.setSource(bufferSource.get(), 0, nullptr, sound->sampleRate);
+        transportSource.start();
+        return;
+    }
+
+    // Fallback: load from file
+    if (row < savedSoundPaths.size())
+    {
+        loadAudioFileForPlayback(juce::File(savedSoundPaths[row]));
+        transportSource.start();
+    }
+}
+
 void MainComponent::mouseDown(const juce::MouseEvent& e)
 {
     if (currentState != AppState::MAIN_APP)
@@ -1639,6 +1728,8 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
                 playbackBuffer.setSize(playbackBuffer.getNumChannels(), sound->numSamples, true, false, false);
 
                 bufferSource = std::make_unique<BufferAudioSource>(playbackBuffer, sound->numSamples);
+                displayBuffer = &playbackBuffer;         
+                displayNumSamples = sound->numSamples;   
 
                 float sliderVal = pitchSlider.getValue();
                 float rate = 0.5f * std::pow(4.0f, sliderVal / 100.0f);
@@ -1714,6 +1805,9 @@ void MainComponent::timerCallback()
         repaint();
     }
 
+     if (currentState != AppState::MAIN_APP)
+        return; 
+
     // Update progress bar
     if (transportSource.isPlaying())
     {
@@ -1782,6 +1876,7 @@ juce::PopupMenu MainComponent::getMenuForIndex(int menuIndex, const juce::String
         {
             menu.addItem(1, "Load");
             menu.addItem(2, "Create Guest Account");
+            menu.addItem(4, "Logout");
         }
         menu.addItem(3, "Exit");
     }
@@ -1845,6 +1940,24 @@ void MainComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
             case 2: // Create Guest Account
                 createGuestAccount();
                 break;
+
+                case 4: // ✅ Logout (ADD THIS)
+        {
+            resetSession();
+
+            loggedInAsGuest = false;
+            usernameField_login.clear();
+            passwordField_login.clear();
+            loginRoleSelector.setSelectedId(1);
+            loginRoleSelector.setEnabled(roleChoiceUnlocked());
+
+            currentState = AppState::LOGIN;
+            updateVisibility();
+            resized();
+            repaint();
+            break;
+        }
+
             case 3: // Exit
                 juce::JUCEApplication::getInstance()->systemRequestedQuit();
                 break;
