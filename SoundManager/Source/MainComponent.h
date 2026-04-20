@@ -193,6 +193,8 @@ std::unique_ptr<juce::FileChooser> fileChooser;
     // ---------------- DRAW AREAS ----------------
     juce::Rectangle<int> waveformArea;
     juce::Rectangle<int> clusterArea;
+    juce::ToggleButton applyFilters;
+    bool showFilters = false;
 
     // ---------------- MENU ----------------
     juce::MenuBarComponent menuBar;
