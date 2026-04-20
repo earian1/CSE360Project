@@ -146,8 +146,6 @@ void MainComponent::setRoleChoiceUnlocked(bool unlocked)
 void MainComponent::setupUI()
 
 {
-
-    
     // Login UI
     usernameLabel_setup.setText("Username:", juce::dontSendNotification);
     addAndMakeVisible(usernameLabel_setup);
@@ -197,214 +195,212 @@ void MainComponent::setupUI()
     addAndMakeVisible(loginButton);
 
     submitButton.onClick = [this]()
-{
-    if (usernameField_setup.getText().isEmpty() ||
-        passwordField_setup.getText().isEmpty() ||
-        accountInfoField_setup.getText().isEmpty())
-    {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::WarningIcon,
-            "Error",
-            "Fill all fields");
-        return;
-    }
+        {
+            if (usernameField_setup.getText().isEmpty() ||
+                passwordField_setup.getText().isEmpty() ||
+                accountInfoField_setup.getText().isEmpty())
+            {
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::AlertWindow::WarningIcon,
+                    "Error",
+                    "Fill all fields");
+                return;
+            }
 
-    // ← ADD THIS
-    if (!isValidPassword(passwordField_setup.getText()))
-    {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::WarningIcon,
-            "Weak Password",
-            "Password must contain:\n- At least one uppercase letter\n- At least one number\n- At least one special character");
-        return;
-    }
+            // ← ADD THIS
+            if (!isValidPassword(passwordField_setup.getText()))
+            {
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::AlertWindow::WarningIcon,
+                    "Weak Password",
+                    "Password must contain:\n- At least one uppercase letter\n- At least one number\n- At least one special character");
+                return;
+            }
 
-    juce::String role = roleSelector_setup.getSelectedId() == 1 ? "Owner" : "Guest";
-    saveUserInfo(
-        usernameField_setup.getText(),
-        passwordField_setup.getText(),
-        accountInfoField_setup.getText(),
-        role);
+            juce::String role = roleSelector_setup.getSelectedId() == 1 ? "Owner" : "Guest";
+            saveUserInfo(
+                usernameField_setup.getText(),
+                passwordField_setup.getText(),
+                accountInfoField_setup.getText(),
+                role);
 
-    currentState = AppState::LOGIN;
-    updateVisibility();
-};
+            currentState = AppState::LOGIN;
+            updateVisibility();
+        };
 
     loginButton.onClick = [this]()
-{
-    
-    juce::String enteredUsername = usernameField_login.getText().trim();
-    juce::String enteredPassword = passwordField_login.getText().trim();
-    int selectedRole = loginRoleSelector.getSelectedId();
-
-    if (enteredUsername.isEmpty() || enteredPassword.isEmpty())
-    {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::WarningIcon,
-            "Login Error",
-            "Please enter both username and password.");
-        return;
-    }
-
-
-
-    if (selectedRole == 1)
-    {
-        addAndMakeVisible(menuBar);
-        menuBar.setModel(this);
-
-        juce::String storedUsername, storedPassword, storedAccountInfo, storedRole;
-        loadUserInfo(storedUsername, storedPassword, storedAccountInfo, storedRole);
-
-        if (storedUsername.isEmpty())
         {
 
-            if (!isValidPassword(enteredPassword))
-        {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::WarningIcon,
-            "Weak Password",
-            "Password must contain:\n- At least one uppercase letter\n- At least one number\n- At least one special character");
-        return;
-        }
-            saveUserInfo(enteredUsername, enteredPassword, "User Account", "Owner");
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::InfoIcon,
-                "Account Created",
-                "Your account has been created. Please log in again.");
-            usernameField_login.clear();
-            passwordField_login.clear();
-            return;
-        }
-        else if (enteredUsername == storedUsername &&
-                 enteredPassword == storedPassword &&
-                 storedRole == "Owner")
-        {
-            resetSession();
+            juce::String enteredUsername = usernameField_login.getText().trim();
+            juce::String enteredPassword = passwordField_login.getText().trim();
+            int selectedRole = loginRoleSelector.getSelectedId();
 
-            loggedInAsGuest = false;
-            currentState = AppState::MAIN_APP;
-
-            if (!roleChoiceUnlocked())
+            if (enteredUsername.isEmpty() || enteredPassword.isEmpty())
             {
-                setRoleChoiceUnlocked(true);
-                loginRoleSelector.setEnabled(true);
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::AlertWindow::WarningIcon,
+                    "Login Error",
+                    "Please enter both username and password.");
+                return;
             }
 
-            updateVisibility();
-            resized();
-            repaint();
 
 
-        }
-        else
-        {
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::WarningIcon,
-                "Login Failed",
-                "Invalid owner username or password.");
-            passwordField_login.clear();
-        }
-    }
-    else if (selectedRole == 2)  // ← ADD THIS ENTIRE BLOCK
-    {
-        juce::String guestUsername, guestPassword;
-        loadGuestInfo(guestUsername, guestPassword);
-
-        if (enteredUsername == guestUsername &&
-            enteredPassword == guestPassword)
-        {
-
-            resetSession();
-
-        
-            loggedInAsGuest = true;
-            currentState = AppState::MAIN_APP;
-            updateVisibility();
-            resized();
-            repaint();
-
-
-        }
-        else
-        {
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::WarningIcon,
-                "Login Failed",
-                "Invalid guest username or password.");
-            passwordField_login.clear();
-        }
-    }
-
-    
-};
-
-forgotButton.setButtonText("Forgot credentials?");
-addAndMakeVisible(forgotButton);
-
-forgotButton.onClick = [this]()
-{
-    juce::AlertWindow::showOkCancelBox(
-        juce::AlertWindow::QuestionIcon,
-        "Forgot Credentials",
-        "What would you like to do?",
-        "Reset Account",   // OK = reset
-        "Change Credentials", // Cancel = change
-        nullptr,
-        juce::ModalCallbackFunction::create([this](int result)
-        {
-            if (result == 1) // Reset Account
+            if (selectedRole == 1)
             {
-                currentState = AppState::FIRST_USER_SETUP;
-                updateVisibility();
-                resized();
-            }
-            else // Change Credentials
-            {
-                auto* dialog = new juce::AlertWindow("Change Credentials", "", juce::AlertWindow::NoIcon);
-                dialog->addTextEditor("username", "", "New Username:");
-                dialog->addTextEditor("password", "", "New Password:");
-                dialog->addButton("Save", 1);
-                dialog->addButton("Cancel", 0);
+                addAndMakeVisible(menuBar);
+                menuBar.setModel(this);
 
-                dialog->enterModalState(true, juce::ModalCallbackFunction::create([this, dialog](int r)
+                juce::String storedUsername, storedPassword, storedAccountInfo, storedRole;
+                loadUserInfo(storedUsername, storedPassword, storedAccountInfo, storedRole);
+
+                if (storedUsername.isEmpty())
                 {
-                    if (r == 1)
+
+                    if (!isValidPassword(enteredPassword))
                     {
-                        juce::String newUser = dialog->getTextEditorContents("username").trim();
-                        juce::String newPass = dialog->getTextEditorContents("password").trim();
-
-                        if (newUser.isEmpty() || newPass.isEmpty())
-                        {
-                            juce::AlertWindow::showMessageBoxAsync(
-                                juce::AlertWindow::WarningIcon,
-                                "Error", "Fields cannot be empty.");
-                            return;
-                        }
-
-                        if (!isValidPassword(newPass))
-                        {
-                            juce::AlertWindow::showMessageBoxAsync(
-                                juce::AlertWindow::WarningIcon,
-                                "Weak Password",
-                                "Password must contain:\n- At least one uppercase letter\n- At least one number\n- At least one special character");
-                            delete dialog;
-                            return;
-                        }
-
-                        juce::String dummy, oldPass, info, role;
-                        loadUserInfo(dummy, oldPass, info, role);
-                        saveUserInfo(newUser, newPass, info, role);
-
                         juce::AlertWindow::showMessageBoxAsync(
-                            juce::AlertWindow::InfoIcon,
-                            "Success", "Credentials updated! Please log in.");
+                            juce::AlertWindow::WarningIcon,
+                            "Weak Password",
+                            "Password must contain:\n- At least one uppercase letter\n- At least one number\n- At least one special character");
+                        return;
                     }
-                    delete dialog;
-                }), true);
+                    saveUserInfo(enteredUsername, enteredPassword, "User Account", "Owner");
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::AlertWindow::InfoIcon,
+                        "Account Created",
+                        "Your account has been created. Please log in again.");
+                    usernameField_login.clear();
+                    passwordField_login.clear();
+                    return;
+                }
+                else if (enteredUsername == storedUsername &&
+                    enteredPassword == storedPassword &&
+                    storedRole == "Owner")
+                {
+                    resetSession();
+
+                    loggedInAsGuest = false;
+                    currentState = AppState::MAIN_APP;
+
+                    if (!roleChoiceUnlocked())
+                    {
+                        setRoleChoiceUnlocked(true);
+                        loginRoleSelector.setEnabled(true);
+                    }
+
+                    updateVisibility();
+                    resized();
+                    repaint();
+
+
+                }
+                else
+                {
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::AlertWindow::WarningIcon,
+                        "Login Failed",
+                        "Invalid owner username or password.");
+                    passwordField_login.clear();
+                }
             }
-        }));
-};
+            else if (selectedRole == 2)  // ← ADD THIS ENTIRE BLOCK
+            {
+                juce::String guestUsername, guestPassword;
+                loadGuestInfo(guestUsername, guestPassword);
+
+                if (enteredUsername == guestUsername &&
+                    enteredPassword == guestPassword)
+                {
+
+                    resetSession();
+
+                    loggedInAsGuest = true;
+                    currentState = AppState::MAIN_APP;
+                    updateVisibility();
+                    resized();
+                    repaint();
+
+                }
+                else
+                {
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::AlertWindow::WarningIcon,
+                        "Login Failed",
+                        "Invalid guest username or password.");
+                    passwordField_login.clear();
+                }
+            }
+
+
+        };
+
+    forgotButton.setButtonText("Forgot credentials?");
+    addAndMakeVisible(forgotButton);
+
+    forgotButton.onClick = [this]()
+        {
+            juce::AlertWindow::showOkCancelBox(
+                juce::AlertWindow::QuestionIcon,
+                "Forgot Credentials",
+                "What would you like to do?",
+                "Reset Account",   // OK = reset
+                "Change Credentials", // Cancel = change
+                nullptr,
+                juce::ModalCallbackFunction::create([this](int result)
+                    {
+                        if (result == 1) // Reset Account
+                        {
+                            currentState = AppState::FIRST_USER_SETUP;
+                            updateVisibility();
+                            resized();
+                        }
+                        else // Change Credentials
+                        {
+                            auto* dialog = new juce::AlertWindow("Change Credentials", "", juce::AlertWindow::NoIcon);
+                            dialog->addTextEditor("username", "", "New Username:");
+                            dialog->addTextEditor("password", "", "New Password:");
+                            dialog->addButton("Save", 1);
+                            dialog->addButton("Cancel", 0);
+
+                            dialog->enterModalState(true, juce::ModalCallbackFunction::create([this, dialog](int r)
+                                {
+                                    if (r == 1)
+                                    {
+                                        juce::String newUser = dialog->getTextEditorContents("username").trim();
+                                        juce::String newPass = dialog->getTextEditorContents("password").trim();
+
+                                        if (newUser.isEmpty() || newPass.isEmpty())
+                                        {
+                                            juce::AlertWindow::showMessageBoxAsync(
+                                                juce::AlertWindow::WarningIcon,
+                                                "Error", "Fields cannot be empty.");
+                                            return;
+                                        }
+
+                                        if (!isValidPassword(newPass))
+                                        {
+                                            juce::AlertWindow::showMessageBoxAsync(
+                                                juce::AlertWindow::WarningIcon,
+                                                "Weak Password",
+                                                "Password must contain:\n- At least one uppercase letter\n- At least one number\n- At least one special character");
+                                            delete dialog;
+                                            return;
+                                        }
+
+                                        juce::String dummy, oldPass, info, role;
+                                        loadUserInfo(dummy, oldPass, info, role);
+                                        saveUserInfo(newUser, newPass, info, role);
+
+                                        juce::AlertWindow::showMessageBoxAsync(
+                                            juce::AlertWindow::InfoIcon,
+                                            "Success", "Credentials updated! Please log in.");
+                                    }
+                                    delete dialog;
+                                }), true);
+                        }
+                    }));
+        };
 
     // Main app labels
     mainAppPlaceholder.setJustificationType(juce::Justification::centredLeft);
@@ -454,29 +450,29 @@ forgotButton.onClick = [this]()
 
 
     volumeSlider.onValueChange = [this]()
-    {
-     if (bufferSource)
-    {
-        float volValue = volumeSlider.getValue();
-        float dB = juce::jmap(volValue, 0.0f, 100.0f, -60.0f, 0.0f);
-        float gain = juce::Decibels::decibelsToGain(dB);
-        bufferSource->setVolume(gain);
-        repaint();
-    }
-    };
+        {
+            if (bufferSource)
+            {
+                float volValue = volumeSlider.getValue();
+                float dB = juce::jmap(volValue, 0.0f, 100.0f, -60.0f, 0.0f);
+                float gain = juce::Decibels::decibelsToGain(dB);
+                bufferSource->setVolume(gain);
+                repaint();
+            }
+        };
 
     pitchSlider.onValueChange = [this]()
-    {
-    if (bufferSource)
-    {
-        float value = pitchSlider.getValue();
-        float rate = (value < 50.0f)
-                     ? juce::jmap(value, 0.0f, 50.0f, 0.5f, 1.0f)
-                     : juce::jmap(value, 50.0f, 100.0f, 1.0f, 2.0f);
-        bufferSource->setPlaybackRate(rate);
-    }
-    repaint();
-    };
+        {
+            if (bufferSource)
+            {
+                float value = pitchSlider.getValue();
+                float rate = (value < 50.0f)
+                    ? juce::jmap(value, 0.0f, 50.0f, 0.5f, 1.0f)
+                    : juce::jmap(value, 50.0f, 100.0f, 1.0f, 2.0f);
+                bufferSource->setPlaybackRate(rate);
+            }
+            repaint();
+        };
 
     lengthLabel.setText("Progress", juce::dontSendNotification);
 
@@ -491,22 +487,22 @@ forgotButton.onClick = [this]()
 
     // When user drags the slider, seek to that position
     lengthSlider.onValueChange = [this]()
-    {
-        if (isUpdatingSlider) return; // ignore updates we triggered ourselves
-
-        double position = lengthSlider.getValue();
-
-        if (bufferSource != nullptr)
         {
-            int seekSample = (int)(position * displayNumSamples);
-            bufferSource->setNextReadPosition(seekSample);
-        }
-        else if (currentAudioFile != nullptr)
-        {
-            double totalLength = transportSource.getLengthInSeconds();
-            transportSource.setPosition(position * totalLength);
-        }
-    };
+            if (isUpdatingSlider) return; // ignore updates we triggered ourselves
+
+            double position = lengthSlider.getValue();
+
+            if (bufferSource != nullptr)
+            {
+                int seekSample = (int)(position * displayNumSamples);
+                bufferSource->setNextReadPosition(seekSample);
+            }
+            else if (currentAudioFile != nullptr)
+            {
+                double totalLength = transportSource.getLengthInSeconds();
+                transportSource.setPosition(position * totalLength);
+            }
+        };
 
     addAndMakeVisible(pitchLabel);
     addAndMakeVisible(lengthLabel);
@@ -520,11 +516,19 @@ forgotButton.onClick = [this]()
     addAndMakeVisible(playButton);
     addAndMakeVisible(stopButton);
     addAndMakeVisible(saveButton);
-    addAndMakeVisible(createGuestButton);
     addAndMakeVisible(logoutButton);
     addAndMakeVisible(downloadButton);
+    applyFilters.setButtonText("Apply Filters");
+    addAndMakeVisible(applyFilters);
     playButton.setColour(juce::TextButton::buttonColourId, juce::Colours::green);
     stopButton.setColour(juce::TextButton::buttonColourId, juce::Colours::red);
+
+    applyFilters.onClick = [this]()
+        {
+            showFilters = applyFilters.getToggleState();
+            repaint();
+        }
+    ;
 
     recordButton.onClick = [this]()
 {
@@ -1050,6 +1054,7 @@ void MainComponent::updateVisibility()
     volumeSlider.setVisible(isOwner || isGuest);
     lengthTimeLabel.setVisible(mainVisible);
     downloadButton.setVisible(isGuest);
+    applyFilters.setVisible(mainVisible);
 }
 
 void MainComponent::paint(juce::Graphics& g)
@@ -1235,9 +1240,10 @@ void MainComponent::resized()
     volumeLabel.setBounds(slidersArea.removeFromTop(22));
     volumeSlider.setBounds(slidersArea.removeFromTop(32));
 
-    area.removeFromTop(12);
+    auto headerRow = area.removeFromTop(12);
 
     clusterMapLabel.setBounds(area.removeFromTop(24));
+    applyFilters.setBounds(headerRow.removeFromLeft(150));
     clusterArea = area;
 }
 }
@@ -1588,6 +1594,7 @@ void MainComponent::drawClusterMap(juce::Graphics& g)
 {
     g.setColour(juce::Colours::white);
     g.drawRect(clusterArea);
+    
 
     if (savedSoundNames.isEmpty())
     {
@@ -1608,7 +1615,7 @@ void MainComponent::drawClusterMap(juce::Graphics& g)
         (float)clusterArea.getY() + 10.0f, 1.5f);
 
     g.setColour(juce::Colours::white);
-    g.drawText("Similarity / Length", clusterArea.getX() + 40, clusterArea.getBottom() - 25, 180, 20, juce::Justification::left);
+    g.drawText("Length of Audio", clusterArea.getX() + 40, clusterArea.getBottom() - 25, 180, 20, juce::Justification::left);
     g.drawText("Similarity", clusterArea.getX() + 2, clusterArea.getY() + 10, 60, 20, juce::Justification::left);
 
     juce::Array<juce::Colour> colours;
@@ -1618,20 +1625,50 @@ void MainComponent::drawClusterMap(juce::Graphics& g)
     colours.add(juce::Colours::orange);
     colours.add(juce::Colours::aqua);
 
+    auto getLengthInSeconds = [this](int index) -> double
+        {
+            if (index >= 0 && index < inMemorySounds.size() && inMemorySounds[index] != nullptr) {
+                SavedSound* sound = inMemorySounds[index];
+                if (sound->sampleRate > 0) {
+                    return (double)sound->numSamples / sound->sampleRate;
+                }
+            }
+
+            if (index >= 0 && index < savedSoundPaths.size()) {
+                juce::File f(savedSoundPaths[index]);
+                if (f.existsAsFile()) {
+                    unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(f));
+                    double lengthInSecs = 0.0;
+                    if (reader != nullptr && reader->sampleRate > 0) {
+                        lengthInSecs = reader->lengthInSamples / reader->sampleRate;
+                    }
+                    return lengthInSecs;
+                }
+            }
+
+            return 0.0;
+        };
+
     int usableWidth = clusterArea.getWidth() - 70;
+
     clusterDots.clear(); // rebuild dot positions every paint
+
+    double maxLengthSecs = 1.0;
+    for (int i = 0; i < savedSoundPaths.size(); i++) {
+        maxLengthSecs = juce::jmax(maxLengthSecs, getLengthInSeconds(i));
+    }
+
 
     for (int i = 0; i < savedSoundNames.size(); ++i)
     {
+        double lengthInSecs = getLengthInSeconds(i);
+        
+        int x = juce::jmap((float)lengthInSecs, 0.0f, (float)maxLengthSecs + (float)maxLengthSecs/16, (float)(clusterArea.getX() + 30) + 15, (float)(clusterArea.getRight() - 10) - 20);
         int clusterIndex = i % 3;
-        int baseX = clusterArea.getX() + 80 + clusterIndex * (usableWidth / 3);
-        int baseY = clusterArea.getY() + 60 + clusterIndex * 20;
-
-        int x = baseX + (i % 4) * 20;
-        int y = baseY + (i % 5) * 18;
-
+        int y = (clusterArea.getBottom() - 30) - 25 - clusterIndex * 35 - ((i / 3) % 4) * 12;
+        
         // Store dot position
-        clusterDots.add({ x, y, i });
+        clusterDots.add({x, y, i});
 
         // Highlight if selected
         if (i == selectedSoundRow)
@@ -1647,6 +1684,24 @@ void MainComponent::drawClusterMap(juce::Graphics& g)
         g.setColour(juce::Colours::white);
         g.setFont(11.0f);
         g.drawText(savedSoundNames[i], x + 15, y, 80, 12, juce::Justification::centredLeft);
+    }
+    if (showFilters) {
+        int boxX = clusterArea.getX() + 1370;
+        int boxY = clusterArea.getY() + 95;
+        int boxWidth = 50;
+        int boxLength = 75;
+
+        g.setColour(juce::Colours::red);
+        g.drawRect(boxX, boxY, boxWidth, boxLength, 2);
+
+        boxX = clusterArea.getX() + 450;
+        boxY = clusterArea.getY() + 160;
+        boxWidth = 800;
+        boxLength = 40;
+
+        g.setColour(juce::Colours::yellow);
+        g.drawRect(boxX, boxY, boxWidth, boxLength, 2);
+
     }
 }
 
