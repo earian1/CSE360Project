@@ -523,12 +523,21 @@ void MainComponent::setupUI()
     playButton.setColour(juce::TextButton::buttonColourId, juce::Colours::green);
     stopButton.setColour(juce::TextButton::buttonColourId, juce::Colours::red);
 
-    applyFilters.onClick = [this]()
-        {
-            showFilters = applyFilters.getToggleState();
-            repaint();
-        }
-    ;
+    // BEFORE:
+applyFilters.onClick = [this]()
+{
+    showFilters = applyFilters.getToggleState();
+    repaint();
+};
+
+// AFTER:
+applyFilters.setClickingTogglesState(true);
+applyFilters.onClick = [this]()
+{
+    showFilters = applyFilters.getToggleState();
+    applyFilters.setButtonText(showFilters ? "Hide Filters" : "Apply Filters");
+    repaint();
+};
 
     recordButton.onClick = [this]()
 {
@@ -551,7 +560,6 @@ void MainComponent::setupUI()
         recordingBuffer.clear();
 
         blinkState = true;
-        startTimer(500);
 
         recordingStatusLabel.setText("Recording started...", juce::dontSendNotification);
     }
@@ -1594,7 +1602,6 @@ void MainComponent::drawClusterMap(juce::Graphics& g)
 {
     g.setColour(juce::Colours::white);
     g.drawRect(clusterArea);
-    
 
     if (savedSoundNames.isEmpty())
     {
@@ -1616,7 +1623,7 @@ void MainComponent::drawClusterMap(juce::Graphics& g)
 
     g.setColour(juce::Colours::white);
     g.drawText("Length of Audio", clusterArea.getX() + 40, clusterArea.getBottom() - 25, 180, 20, juce::Justification::left);
-    g.drawText("Similarity", clusterArea.getX() + 2, clusterArea.getY() + 10, 60, 20, juce::Justification::left);
+    g.drawText("Loudness", clusterArea.getX() + 2, clusterArea.getY() + 10, 60, 20, juce::Justification::left);
 
     juce::Array<juce::Colour> colours;
     colours.add(juce::Colours::hotpink);
@@ -1625,52 +1632,176 @@ void MainComponent::drawClusterMap(juce::Graphics& g)
     colours.add(juce::Colours::orange);
     colours.add(juce::Colours::aqua);
 
+    // --- Helper: get length in seconds ---
     auto getLengthInSeconds = [this](int index) -> double
+    {
+        if (index >= 0 && index < inMemorySounds.size() && inMemorySounds[index] != nullptr)
         {
-            if (index >= 0 && index < inMemorySounds.size() && inMemorySounds[index] != nullptr) {
-                SavedSound* sound = inMemorySounds[index];
-                if (sound->sampleRate > 0) {
-                    return (double)sound->numSamples / sound->sampleRate;
-                }
+            SavedSound* sound = inMemorySounds[index];
+            if (sound->sampleRate > 0)
+                return (double)sound->numSamples / sound->sampleRate;
+        }
+        if (index >= 0 && index < savedSoundPaths.size())
+        {
+            juce::File f(savedSoundPaths[index]);
+            if (f.existsAsFile())
+            {
+                std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(f));
+                if (reader != nullptr && reader->sampleRate > 0)
+                    return reader->lengthInSamples / reader->sampleRate;
             }
+        }
+        return 0.0;
+    };
 
-            if (index >= 0 && index < savedSoundPaths.size()) {
-                juce::File f(savedSoundPaths[index]);
-                if (f.existsAsFile()) {
-                    unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(f));
-                    double lengthInSecs = 0.0;
-                    if (reader != nullptr && reader->sampleRate > 0) {
-                        lengthInSecs = reader->lengthInSamples / reader->sampleRate;
-                    }
-                    return lengthInSecs;
-                }
-            }
+    // --- Helper: get RMS loudness ---
+    auto getRMS = [this](int index) -> double
+    {
+        if (index < 0 || index >= inMemorySounds.size()) return 0.0;
+        auto* sound = inMemorySounds[index];
+        if (sound == nullptr || sound->numSamples == 0) return 0.0;
 
-            return 0.0;
-        };
+        double sum = 0.0;
+        const float* data = sound->buffer.getReadPointer(0);
+        for (int s = 0; s < sound->numSamples; ++s)
+            sum += (double)data[s] * (double)data[s];
 
-    int usableWidth = clusterArea.getWidth() - 70;
+        return std::sqrt(sum / sound->numSamples);
+    };
 
-    clusterDots.clear(); // rebuild dot positions every paint
-
+    // --- Find max values for normalization ---
     double maxLengthSecs = 1.0;
-    for (int i = 0; i < savedSoundPaths.size(); i++) {
+    for (int i = 0; i < savedSoundPaths.size(); ++i)
         maxLengthSecs = juce::jmax(maxLengthSecs, getLengthInSeconds(i));
-    }
 
+    double maxRMS = 0.001;
+    for (int i = 0; i < savedSoundNames.size(); ++i)
+        maxRMS = juce::jmax(maxRMS, getRMS(i));
+
+    // --- Draw filter bands ---
+    if (showFilters)
+{
+    double band1Max = 2.99;   // green:  0–2 min
+    double band2Max = 4.99;   // yellow: 3–4 min
+    double band3Max = 6.99;   // red:    5–6 min
+    double band4Max = 8.99;   // blue:   7–8 min
+    double band5Max = 10.99;  // purple: 9–10 min
+
+    auto lengthToX = [&](double secs) -> float
+    {
+        return juce::jmap((float)secs,
+                          0.0f, (float)(maxLengthSecs + maxLengthSecs / 16.0),
+                          (float)(clusterArea.getX() + 30) + 15.0f,
+                          (float)(clusterArea.getRight() - 10) - 20.0f);
+    };
+
+    // Convert minutes to seconds for the band boundaries
+    float xBand0  = lengthToX(0.0 * 60);   // 1 min start
+    float xBand1  = lengthToX(band1Max * 60);
+    float xBand2  = lengthToX(band2Max * 60);
+    float xBand3  = lengthToX(band3Max * 60);
+    float xBand4  = lengthToX(band4Max * 60);
+    float xBand5  = lengthToX(band5Max * 60);
+
+    float bandTop    = (float)(clusterArea.getY() + 10);
+    float bandBottom = (float)(clusterArea.getBottom() - 30);
+    float bandHeight = bandBottom - bandTop;
+
+    // Green: 1–2 min
+    g.setColour(juce::Colours::limegreen.withAlpha(0.15f));
+    g.fillRect(xBand0, bandTop, xBand1 - xBand0, bandHeight);
+    g.setColour(juce::Colours::limegreen.withAlpha(0.6f));
+    g.drawRect(xBand0, bandTop, xBand1 - xBand0, bandHeight, 1.5f);
+    g.setColour(juce::Colours::limegreen);
+    g.setFont(10.0f);
+    g.drawText("0-2 min", (int)xBand0 + 4, (int)bandTop + 4, 60, 14, juce::Justification::centredLeft);
+
+    // Yellow: 3–4 min
+    g.setColour(juce::Colours::yellow.withAlpha(0.1f));
+    g.fillRect(xBand1, bandTop, xBand2 - xBand1, bandHeight);
+    g.setColour(juce::Colours::yellow.withAlpha(0.6f));
+    g.drawRect(xBand1, bandTop, xBand2 - xBand1, bandHeight, 1.5f);
+    g.setColour(juce::Colours::yellow);
+    g.drawText("3-4 min", (int)xBand1 + 4, (int)bandTop + 4, 60, 14, juce::Justification::centredLeft);
+
+    // Red: 5–6 min
+    g.setColour(juce::Colours::orangered.withAlpha(0.1f));
+    g.fillRect(xBand2, bandTop, xBand3 - xBand2, bandHeight);
+    g.setColour(juce::Colours::orangered.withAlpha(0.6f));
+    g.drawRect(xBand2, bandTop, xBand3 - xBand2, bandHeight, 1.5f);
+    g.setColour(juce::Colours::orangered);
+    g.drawText("5-6 min", (int)xBand2 + 4, (int)bandTop + 4, 60, 14, juce::Justification::centredLeft);
+
+    // Blue: 7–8 min
+    g.setColour(juce::Colours::cornflowerblue.withAlpha(0.15f));
+    g.fillRect(xBand3, bandTop, xBand4 - xBand3, bandHeight);
+    g.setColour(juce::Colours::cornflowerblue.withAlpha(0.6f));
+    g.drawRect(xBand3, bandTop, xBand4 - xBand3, bandHeight, 1.5f);
+    g.setColour(juce::Colours::cornflowerblue);
+    g.drawText("7-8 min", (int)xBand3 + 4, (int)bandTop + 4, 60, 14, juce::Justification::centredLeft);
+
+    // Purple: 9–10 min
+    g.setColour(juce::Colours::mediumpurple.withAlpha(0.15f));
+    g.fillRect(xBand4, bandTop, xBand5 - xBand4, bandHeight);
+    g.setColour(juce::Colours::mediumpurple.withAlpha(0.6f));
+    g.drawRect(xBand4, bandTop, xBand5 - xBand4, bandHeight, 1.5f);
+    g.setColour(juce::Colours::mediumpurple);
+    g.drawText("9-10 min", (int)xBand4 + 4, (int)bandTop + 4, 65, 14, juce::Justification::centredLeft);
+
+    // Highlight same-group neighbors of selected sound
+    if (selectedSoundRow >= 0 && selectedSoundRow < savedSoundNames.size())
+    {
+        double selSecs = getLengthInSeconds(selectedSoundRow);
+        double selMins = selSecs / 60.0;
+
+        double groupMin = (selMins < 2) ? 1.0  : (selMins < 4) ? 2.0
+                        : (selMins < 6) ? 4.0  : (selMins < 8) ? 6.0 : 8.0;
+        double groupMax = (selMins < 2) ? 2.0  : (selMins < 4) ? 4.0
+                        : (selMins < 6) ? 6.0  : (selMins < 8) ? 8.0 : 10.0;
+
+        for (int i = 0; i < clusterDots.size(); ++i)
+        {
+            if (i == selectedSoundRow) continue;
+            double mins = getLengthInSeconds(i) / 60.0;
+            if (mins >= groupMin && mins < groupMax)
+            {
+                g.setColour(juce::Colours::white.withAlpha(0.5f));
+                g.drawEllipse((float)clusterDots[i].x - 4,
+                              (float)clusterDots[i].y - 4,
+                              20.0f, 20.0f, 2.0f);
+            }
+        }
+    }
+}
+
+    // --- Plot dots ---
+// --- Plot dots FIRST so clusterDots is populated ---
+    clusterDots.clear();
 
     for (int i = 0; i < savedSoundNames.size(); ++i)
     {
         double lengthInSecs = getLengthInSeconds(i);
-        
-        int x = juce::jmap((float)lengthInSecs, 0.0f, (float)maxLengthSecs + (float)maxLengthSecs/16, (float)(clusterArea.getX() + 30) + 15, (float)(clusterArea.getRight() - 10) - 20);
-        int clusterIndex = i % 3;
-        int y = (clusterArea.getBottom() - 30) - 25 - clusterIndex * 35 - ((i / 3) % 4) * 12;
-        
-        // Store dot position
-        clusterDots.add({x, y, i});
+        double rms          = getRMS(i);
 
-        // Highlight if selected
+        int x = (int)juce::jmap((float)lengthInSecs,
+                                 0.0f, (float)(maxLengthSecs + maxLengthSecs / 16.0),
+                                 (float)(clusterArea.getX() + 30) + 15.0f,
+                                 (float)(clusterArea.getRight() - 10) - 20.0f);
+
+        int y = (int)juce::jmap((float)rms,
+                                 0.0f, (float)maxRMS,
+                                 (float)(clusterArea.getBottom() - 40),
+                                 (float)(clusterArea.getY() + 20));
+
+        clusterDots.add({ x, y, i });
+    }
+
+    // --- Now render the dots on top ---
+    for (int i = 0; i < clusterDots.size(); ++i)
+    {
+        int x = clusterDots[i].x;
+        int y = clusterDots[i].y;
+
         if (i == selectedSoundRow)
         {
             g.setColour(juce::Colours::white);
@@ -1680,72 +1811,9 @@ void MainComponent::drawClusterMap(juce::Graphics& g)
         g.setColour(colours[i % colours.size()]);
         g.fillEllipse((float)x, (float)y, 12.0f, 12.0f);
 
-        // Draw sound name next to dot
         g.setColour(juce::Colours::white);
         g.setFont(11.0f);
         g.drawText(savedSoundNames[i], x + 15, y, 80, 12, juce::Justification::centredLeft);
-    }
-    if (showFilters) {
-        int boxX = clusterArea.getX() + 1370;
-        int boxY = clusterArea.getY() + 95;
-        int boxWidth = 50;
-        int boxLength = 75;
-
-        g.setColour(juce::Colours::red);
-        g.drawRect(boxX, boxY, boxWidth, boxLength, 2);
-
-        boxX = clusterArea.getX() + 450;
-        boxY = clusterArea.getY() + 160;
-        boxWidth = 800;
-        boxLength = 40;
-
-        g.setColour(juce::Colours::yellow);
-        g.drawRect(boxX, boxY, boxWidth, boxLength, 2);
-
-    }
-}
-
-void MainComponent::listBoxItemDoubleClicked(int row, const juce::MouseEvent&)
-{
-    selectedSoundRow = row;
-
-    if (row < 0 || row >= savedSoundNames.size())
-        return;
-
-    transportSource.stop();
-    transportSource.setSource(nullptr);
-    bufferSource.reset();
-
-    // Try in-memory first
-    if (row < inMemorySounds.size())
-    {
-        auto* sound = inMemorySounds[row];
-
-        playbackBuffer.makeCopyOf(sound->buffer);
-        playbackBuffer.setSize(playbackBuffer.getNumChannels(), sound->numSamples, true, false, false);
-
-        displayBuffer = &playbackBuffer;
-        displayNumSamples = sound->numSamples;
-
-        bufferSource = std::make_unique<BufferAudioSource>(playbackBuffer, sound->numSamples);
-
-        float sliderVal = pitchSlider.getValue();
-        float rate = 0.5f * std::pow(4.0f, sliderVal / 100.0f);
-        bufferSource->setPlaybackRate(rate);
-
-        float dB = juce::jmap((float)volumeSlider.getValue(), 0.0f, 100.0f, -60.0f, 0.0f);
-        bufferSource->setVolume(juce::Decibels::decibelsToGain(dB));
-
-        transportSource.setSource(bufferSource.get(), 0, nullptr, sound->sampleRate);
-        transportSource.start();
-        return;
-    }
-
-    // Fallback: load from file
-    if (row < savedSoundPaths.size())
-    {
-        loadAudioFileForPlayback(juce::File(savedSoundPaths[row]));
-        transportSource.start();
     }
 }
 
@@ -1802,6 +1870,49 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
             repaint();
             return;
         }
+    }
+}
+
+void MainComponent::listBoxItemDoubleClicked(int row, const juce::MouseEvent&)
+{
+    selectedSoundRow = row;
+
+    if (row < 0 || row >= savedSoundNames.size())
+        return;
+
+    transportSource.stop();
+    transportSource.setSource(nullptr);
+    bufferSource.reset();
+
+    if (row < inMemorySounds.size())
+    {
+        auto* sound = inMemorySounds[row];
+
+        playbackBuffer.makeCopyOf(sound->buffer);
+        playbackBuffer.setSize(playbackBuffer.getNumChannels(), sound->numSamples, true, false, false);
+
+        displayBuffer = &playbackBuffer;
+        displayNumSamples = sound->numSamples;
+
+        bufferSource = std::make_unique<BufferAudioSource>(playbackBuffer, sound->numSamples);
+
+        float sliderVal = pitchSlider.getValue();
+        float rate = 0.5f * std::pow(4.0f, sliderVal / 100.0f);
+        bufferSource->setPlaybackRate(rate);
+
+        float dB = juce::jmap((float)volumeSlider.getValue(), 0.0f, 100.0f, -60.0f, 0.0f);
+        bufferSource->setVolume(juce::Decibels::decibelsToGain(dB));
+
+        transportSource.setSource(bufferSource.get(), 0, nullptr, sound->sampleRate);
+        transportSource.start();
+        repaint();
+        return;
+    }
+
+    if (row < savedSoundPaths.size())
+    {
+        loadAudioFileForPlayback(juce::File(savedSoundPaths[row]));
+        transportSource.start();
     }
 }
 
