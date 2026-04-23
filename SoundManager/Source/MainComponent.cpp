@@ -425,7 +425,7 @@ void MainComponent::setupUI()
 
     // Sound list
     soundList.setModel(this);
-    soundList.setRowHeight(15);
+    soundList.setRowHeight(22);
     addAndMakeVisible(soundList);
 
     // Sliders
@@ -1535,6 +1535,7 @@ void MainComponent::paintListBoxItem(int rowNumber,
 void MainComponent::selectedRowsChanged(int lastRowSelected)
 {
     selectedSoundRow = lastRowSelected;
+    repaint();
 }
 
 void MainComponent::drawWaveform(juce::Graphics& g)
@@ -1802,11 +1803,11 @@ void MainComponent::drawClusterMap(juce::Graphics& g)
         int x = clusterDots[i].x;
         int y = clusterDots[i].y;
 
-        if (i == selectedSoundRow)
-        {
-            g.setColour(juce::Colours::white);
-            g.drawEllipse((float)x - 2, (float)y - 2, 16.0f, 16.0f, 2.0f);
-        }
+       if (i == selectedSoundRow && selectedSoundRow >= 0 && selectedSoundRow < savedSoundNames.size())
+    {
+    g.setColour(juce::Colours::white);
+    g.drawEllipse((float)x - 2, (float)y - 2, 16.0f, 16.0f, 2.0f);
+    }
 
         g.setColour(colours[i % colours.size()]);
         g.fillEllipse((float)x, (float)y, 12.0f, 12.0f);
@@ -1822,7 +1823,6 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
     if (currentState != AppState::MAIN_APP)
         return;
 
-    // Check if click is inside cluster area
     if (!clusterArea.contains(e.getPosition()))
         return;
 
@@ -1830,41 +1830,40 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
 
     for (auto& dot : clusterDots)
     {
-        int cx = dot.x + 6; // centre of the 12px ellipse
+        int cx = dot.x + 6;
         int cy = dot.y + 6;
 
         if (e.getPosition().getDistanceFrom(juce::Point<int>(cx, cy)) <= hitRadius)
         {
-            // Select this sound in the list
-            selectedSoundRow = dot.soundIndex;
-            soundList.selectRow(selectedSoundRow);
+            selectedSoundRow = dot.soundIndex; // ← set directly first
+            
+            // Temporarily disconnect the callback to avoid it overwriting selectedSoundRow
+            soundList.deselectAllRows();
+            soundList.selectRow(dot.soundIndex, false, false); // don't send notification
 
-            // If double clicked, play it
-            if (e.getNumberOfClicks() == 2 && dot.soundIndex < inMemorySounds.size())
+            if (e.getNumberOfClicks() == 2 && selectedSoundRow >= 0 && selectedSoundRow < savedSoundPaths.size())
             {
-                auto* sound = inMemorySounds[dot.soundIndex];
-                transportSource.stop();
-                transportSource.setSource(nullptr);
-                bufferSource.reset();
+                juce::File f(savedSoundPaths[selectedSoundRow]);
+                if (f.existsAsFile())
+                {
+                    std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(f));
+                    if (reader != nullptr)
+                    {
+                        double fileSampleRate = reader->sampleRate;
+                        displayNumSamples = (int)reader->lengthInSamples;
 
-                playbackBuffer.makeCopyOf(sound->buffer);
-                playbackBuffer.setSize(playbackBuffer.getNumChannels(), sound->numSamples, true, false, false);
+                        transportSource.stop();
+                        transportSource.setSource(nullptr);
+                        currentAudioFile.reset();
 
-                bufferSource = std::make_unique<BufferAudioSource>(playbackBuffer, sound->numSamples);
-                displayBuffer = &playbackBuffer;         
-                displayNumSamples = sound->numSamples;   
+                        currentAudioFile.reset(new juce::AudioFormatReaderSource(reader.release(), true));
+                        transportSource.setSource(currentAudioFile.get(), 32768, nullptr, fileSampleRate);
 
-                float sliderVal = pitchSlider.getValue();
-                float rate = 0.5f * std::pow(4.0f, sliderVal / 100.0f);
-                bufferSource->setPlaybackRate(rate);
-
-
-                float dB = juce::jmap((float)volumeSlider.getValue(), 0.0f, 100.0f, -60.0f, 0.0f);
-                bufferSource->setVolume(juce::Decibels::decibelsToGain(dB));
-
-                transportSource.setSource(bufferSource.get(), 0, nullptr, sound->sampleRate);
-                transportSource.start();
-                repaint();
+                        float dB = juce::jmap((float)volumeSlider.getValue(), 0.0f, 100.0f, -60.0f, 0.0f);
+                        transportSource.setGain(juce::Decibels::decibelsToGain(dB));
+                        transportSource.start();
+                    }
+                }
             }
 
             repaint();
