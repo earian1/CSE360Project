@@ -1841,30 +1841,61 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
             soundList.deselectAllRows();
             soundList.selectRow(dot.soundIndex, false, false); // don't send notification
 
-            if (e.getNumberOfClicks() == 2 && selectedSoundRow >= 0 && selectedSoundRow < savedSoundPaths.size())
+            if (e.getNumberOfClicks() == 2 && selectedSoundRow >= 0)
+{
+    // Always stop and clear first
+    transportSource.stop();
+    transportSource.setSource(nullptr);
+    bufferSource.reset();
+    currentAudioFile.reset();
+
+    // Prefer in-memory sound (works for both owner and guest)
+    if (selectedSoundRow < inMemorySounds.size())
+    {
+        auto* sound = inMemorySounds[selectedSoundRow];
+
+        playbackBuffer.makeCopyOf(sound->buffer);
+        playbackBuffer.setSize(playbackBuffer.getNumChannels(), sound->numSamples, true, false, false);
+
+        displayBuffer = &playbackBuffer;
+        displayNumSamples = sound->numSamples;
+
+        bufferSource = std::make_unique<BufferAudioSource>(playbackBuffer, sound->numSamples);
+
+        float sliderVal = pitchSlider.getValue();
+        float rate = 0.5f * std::pow(4.0f, sliderVal / 100.0f);
+        bufferSource->setPlaybackRate(rate);
+
+        float dB = juce::jmap((float)volumeSlider.getValue(), 0.0f, 100.0f, -60.0f, 0.0f);
+        bufferSource->setVolume(juce::Decibels::decibelsToGain(dB));
+
+        transportSource.setSource(bufferSource.get(), 0, nullptr, sound->sampleRate);
+        transportSource.start();
+        repaint();
+    }
+    else if (selectedSoundRow < savedSoundPaths.size())
+    {
+        // Fall back to file (safe version)
+        juce::File f(savedSoundPaths[selectedSoundRow]);
+        if (f.existsAsFile())
+        {
+            auto* rawReader = formatManager.createReaderFor(f);
+            if (rawReader != nullptr)
             {
-                juce::File f(savedSoundPaths[selectedSoundRow]);
-                if (f.existsAsFile())
-                {
-                    std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(f));
-                    if (reader != nullptr)
-                    {
-                        double fileSampleRate = reader->sampleRate;
-                        displayNumSamples = (int)reader->lengthInSamples;
+                double fileSampleRate = rawReader->sampleRate;
+                displayNumSamples = (int)rawReader->lengthInSamples;
 
-                        transportSource.stop();
-                        transportSource.setSource(nullptr);
-                        currentAudioFile.reset();
+                currentAudioFile.reset(new juce::AudioFormatReaderSource(rawReader, true));
+                transportSource.setSource(currentAudioFile.get(), 32768, nullptr, fileSampleRate);
 
-                        currentAudioFile.reset(new juce::AudioFormatReaderSource(reader.release(), true));
-                        transportSource.setSource(currentAudioFile.get(), 32768, nullptr, fileSampleRate);
-
-                        float dB = juce::jmap((float)volumeSlider.getValue(), 0.0f, 100.0f, -60.0f, 0.0f);
-                        transportSource.setGain(juce::Decibels::decibelsToGain(dB));
-                        transportSource.start();
-                    }
-                }
+                float dB = juce::jmap((float)volumeSlider.getValue(), 0.0f, 100.0f, -60.0f, 0.0f);
+                transportSource.setGain(juce::Decibels::decibelsToGain(dB));
+                transportSource.start();
+                repaint();
             }
+        }
+    }
+}
 
             repaint();
             return;
