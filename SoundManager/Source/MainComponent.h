@@ -119,7 +119,10 @@ juce::OwnedArray<SavedSound> inMemorySounds;
     bool blinkState = false;
     bool isUpdatingSlider = false;
     bool isPaused = false;
-
+    // Live waveform ring buffer
+    static constexpr int liveBufferSize = 4096;
+    float liveRingBuffer[liveBufferSize] = {};
+    int liveRingWritePos = 0;
 
     // ---------------- FIRST USER SETUP / CREATE ACCOUNT ----------------
     juce::Label usernameLabel_setup;

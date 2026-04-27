@@ -1498,6 +1498,15 @@ void MainComponent::audioDeviceIOCallbackWithContext(const float* const* inputCh
         juce::dontSendNotification);
         });
 
+        if (inputChannelData[0] != nullptr)
+    {
+        for (int i = 0; i < numSamples; ++i)
+        {
+            liveRingBuffer[liveRingWritePos % liveBufferSize] = inputChannelData[0][i];
+            ++liveRingWritePos;
+        }
+    }
+
     }
 
     for (int channel = 0; channel < numOutputChannels; ++channel)
@@ -1543,60 +1552,121 @@ void MainComponent::drawWaveform(juce::Graphics& g)
     g.setColour(juce::Colours::white);
     g.drawRect(waveformArea);
 
-    if (displayBuffer == nullptr || displayNumSamples <= 1)
-    {
-        g.setColour(juce::Colours::lightgrey);
-        g.drawText("No waveform yet", waveformArea, juce::Justification::centred);
-        return;
-    }
-
-    const float* samples = displayBuffer->getReadPointer(0);
-
-    // Find the actual peak amplitude
-    float peak = 0.0f;
-    for (int i = 0; i < displayNumSamples; ++i)
-        peak = juce::jmax(peak, std::abs(samples[i]));
-
-    if (peak < 0.0001f)
-        peak = 1.0f;
-
-    g.setColour(juce::Colours::cyan);
-
     int midY = waveformArea.getCentreY();
     int width = waveformArea.getWidth();
 
-    juce::Path path;
-    path.startNewSubPath((float)waveformArea.getX(), (float)midY);
+    // ── LIVE RECORDING MODE ──────────────────────────────────────────────
+    if (isRecording)
+    {
+        g.setColour(juce::Colours::lightgrey);
+        g.drawHorizontalLine(midY, (float)waveformArea.getX(), (float)waveformArea.getRight());
 
-    int samplesPerPixel = juce::jmax(1, displayNumSamples / juce::jmax(1, width));
+        g.setColour(juce::Colours::red);
 
+        juce::Path path;
+        path.startNewSubPath((float)waveformArea.getX(), (float)midY);
+
+        int samplesToShow = juce::jmin(liveBufferSize, width * 2);
+
+        for (int x = 0; x < width; ++x)
+        {
+            int bufferIndex = (liveRingWritePos - samplesToShow + (x * samplesToShow / width) + liveBufferSize * 4) % liveBufferSize;
+            float sample = liveRingBuffer[bufferIndex];
+
+            float y = juce::jmap(sample, -1.0f, 1.0f,
+                (float)waveformArea.getBottom() - 4,
+                (float)waveformArea.getY() + 4);
+
+            path.lineTo((float)(waveformArea.getX() + x), y);
+        }
+
+        g.strokePath(path, juce::PathStrokeType(1.5f));
+
+        g.setColour(juce::Colours::red.withAlpha(0.7f));
+        g.setFont(11.0f);
+        g.drawText("● LIVE", waveformArea.reduced(8), juce::Justification::topLeft);
+        return;
+    }
+
+    // ── STATIC WAVEFORM + PLAYBACK CURSOR ───────────────────────────────
+    // ── PLAYBACK: REVEAL WAVEFORM UP TO CURRENT POSITION ────────────────
+if (displayBuffer == nullptr || displayNumSamples <= 1)
+{
+    g.setColour(juce::Colours::lightgrey);
+    g.drawText("No waveform yet", waveformArea, juce::Justification::centred);
+    return;
+}
+
+const float* samples = displayBuffer->getReadPointer(0);
+
+float peak = 0.0f;
+for (int i = 0; i < displayNumSamples; ++i)
+    peak = juce::jmax(peak, std::abs(samples[i]));
+if (peak < 0.0001f) peak = 1.0f;
+
+
+int samplesPerPixel = juce::jmax(1, displayNumSamples / juce::jmax(1, width));
+
+// Figure out how far through playback we are (0.0 - 1.0)
+double playPosition = lengthSlider.getValue();
+int playedPixels = (transportSource.isPlaying() || isPaused)
+                   ? (int)(playPosition * width)
+                   : width; // if stopped, show full waveform
+
+// Draw unplayed portion (dim)
+g.setColour(juce::Colours::cyan.withAlpha(0.25f));
+{
+    juce::Path dimPath;
+    dimPath.startNewSubPath((float)waveformArea.getX(), (float)midY);
     for (int x = 0; x < width; ++x)
     {
         int sampleIndex = juce::jmin(displayNumSamples - 1, x * samplesPerPixel);
-
         float maxSample = 0.0f;
         for (int s = sampleIndex; s < juce::jmin(sampleIndex + samplesPerPixel, displayNumSamples); ++s)
             maxSample = juce::jmax(maxSample, std::abs(samples[s]));
-
         float signedSample = samples[sampleIndex] >= 0 ? maxSample : -maxSample;
-
         float y = juce::jmap(signedSample / peak, -1.0f, 1.0f,
-            (float)waveformArea.getBottom() - 4,
-            (float)waveformArea.getY() + 4);
-
-        path.lineTo((float)(waveformArea.getX() + x), y);
+            (float)waveformArea.getBottom() - 4, (float)waveformArea.getY() + 4);
+        dimPath.lineTo((float)(waveformArea.getX() + x), y);
     }
+    g.strokePath(dimPath, juce::PathStrokeType(2.0f));
+}
 
-    g.strokePath(path, juce::PathStrokeType(2.0f));
+// Draw played portion (bright) up to cursor
+g.setColour(juce::Colours::cyan);
+{
+    juce::Path brightPath;
+    brightPath.startNewSubPath((float)waveformArea.getX(), (float)midY);
+    for (int x = 0; x < playedPixels; ++x)
+    {
+        int sampleIndex = juce::jmin(displayNumSamples - 1, x * samplesPerPixel);
+        float maxSample = 0.0f;
+        for (int s = sampleIndex; s < juce::jmin(sampleIndex + samplesPerPixel, displayNumSamples); ++s)
+            maxSample = juce::jmax(maxSample, std::abs(samples[s]));
+        float signedSample = samples[sampleIndex] >= 0 ? maxSample : -maxSample;
+        float y = juce::jmap(signedSample / peak, -1.0f, 1.0f,
+            (float)waveformArea.getBottom() - 4, (float)waveformArea.getY() + 4);
+        brightPath.lineTo((float)(waveformArea.getX() + x), y);
+    }
+    g.strokePath(brightPath, juce::PathStrokeType(2.0f));
+}
 
-    g.setColour(juce::Colours::grey);
-    g.drawHorizontalLine(midY, (float)waveformArea.getX(), (float)waveformArea.getRight());
+// Cursor line
+if (transportSource.isPlaying() || isPaused)
+{
+    float cursorX = (float)waveformArea.getX() + (float)(playPosition * width);
+    g.setColour(juce::Colours::yellow);
+    g.drawLine(cursorX, (float)waveformArea.getY(), cursorX, (float)waveformArea.getBottom(), 2.0f);
+}
 
-    g.setColour(juce::Colours::orange);
-    g.drawText("Pitch: " + juce::String(pitchSlider.getValue(), 1) +
-        "   Length: " + juce::String(lengthSlider.getValue(), 1) +
-        "   Volume: " + juce::String(volumeSlider.getValue(), 2),
-        waveformArea.reduced(8), juce::Justification::topRight);
+g.setColour(juce::Colours::grey);
+g.drawHorizontalLine(midY, (float)waveformArea.getX(), (float)waveformArea.getRight());
+
+g.setColour(juce::Colours::orange);
+g.drawText("Pitch: " + juce::String(pitchSlider.getValue(), 1) +
+    "   Length: " + juce::String(lengthSlider.getValue(), 1) +
+    "   Volume: " + juce::String(volumeSlider.getValue(), 2),
+    waveformArea.reduced(8), juce::Justification::topRight);
 }
 
 void MainComponent::drawClusterMap(juce::Graphics& g)
